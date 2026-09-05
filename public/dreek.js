@@ -121,31 +121,37 @@ function buildFigure() {
   const cx = F.cx, cy = F.cy, rx = F.rx, ry = F.ry;
   const neckW = F.neckW, neckLen = F.neckLen, shoulder = F.shoulder, horizon = F.horizon;
 
-  // The head: a halftone screen over the face map. One particle per grid cell,
-  // skipping cells too dark to show, so the portrait dissolves into the star
-  // field at its edges instead of ending on a rectangle.
+  // The head is a cloud, not a print. Particles are scattered by rejection
+  // sampling against the face map, so it is their DENSITY that carries the
+  // tone - many where the face is lit, almost none in shadow. Every one is the
+  // same kind of speck, free to drift; a grid of differently sized dots reads
+  // as halftone, which is exactly what this is not.
   const faceW = F.faceW, faceH = F.faceH;
   const faceL = cx - faceW / 2;
   const faceT = cy - faceH * 0.56;
-  const pitch = Math.max(1.9, faceW / 150);         // spacing of the dot screen
 
-  for (let gy = 0; gy * pitch < faceH; gy++) {
-    for (let gx = 0; gx * pitch < faceW; gx++) {
-      // Offset alternate rows: a square screen moires against the features.
-      const ox = (gy & 1) ? pitch * 0.5 : 0;
-      const px = faceL + gx * pitch + ox;
-      const py = faceT + gy * pitch;
-      const u = (px - faceL) / faceW;
-      const v = (py - faceT) / faceH;
-      const lum = faceAt(u, v);
-      if (lum < 0.06) continue;                      // background, not the face
-      push(G.SKIN, px, py, {
-        s: 0.14 + Math.sqrt(lum) * 1.18,
-        a: 0.40 + lum * 0.60,
-        layer: 0.55 + lum * 0.35,
-        u: u, band: Math.round(v * 1000),            // v, kept to 3 decimals
-      });
-    }
+  // Scaled to the face so the cloud keeps its density on a small window without
+  // over-drawing, and stays affordable on a large one.
+  const WANT = Math.max(9000, Math.min(26000, Math.round(faceW * faceH * 0.42)));
+  let placed = 0, tries = 0;
+  while (placed < WANT && tries < WANT * 40) {
+    tries++;
+    const u = Math.random();
+    const v = Math.random();
+    const lum = faceAt(u, v);
+    if (lum < 0.05) continue;
+    // Accept with probability rising with tone. The exponent below 1 keeps the
+    // mid tones populated, otherwise only the highlights survive.
+    if (Math.random() > Math.pow(lum, 1.75)) continue;
+    placed++;
+    push(G.SKIN, faceL + u * faceW, faceT + v * faceH, {
+      s: rnd(0.34, 0.86),
+      a: 0.13 + lum * 0.30,
+      layer: 0.45 + lum * 0.4,
+      u: u,
+      // Each speck keeps its own small orbit so the cloud is never still.
+      bin: Math.floor(rnd(0.6, 3.4) * 100),
+    });
   }
 
   const jaw = cy + ry * 0.90;
@@ -273,15 +279,16 @@ function seedBootPositions() {
 // brightest, so the portrait breathes and reacts without losing the likeness.
 function skinTarget(p, t, out) {
   const lvl = state.levelSmooth;
+  const sp = p.bin / 100;                       // this speck's own orbit speed
+  const r = 1.1 + lvl * 5.5;                    // and how wide it wanders
+
   const dx = p.tx - F.cx;
   const dy = p.ty - (F.cy + F.ry * 0.05);
   const d = Math.hypot(dx, dy) || 1;
+  const swell = lvl * 6.0 * Math.sin(d * 0.045 - t * 2.4);
 
-  const wob = Math.sin(d * 0.05 - t * 2.6) * (0.5 + 0.5 * Math.sin(t * 0.7 + p.ph));
-  const push = lvl * 7.0 * wob + Math.sin(t * 1.1 + p.ph) * 0.6;
-
-  out[0] = p.tx + (dx / d) * push;
-  out[1] = p.ty + (dy / d) * push;
+  out[0] = p.tx + Math.cos(t * sp + p.ph) * r + (dx / d) * swell;
+  out[1] = p.ty + Math.sin(t * sp * 0.86 + p.ph * 1.3) * r + (dy / d) * swell;
 }
 
 // Terrain must have relief even in silence, otherwise the mountains vanish
@@ -485,10 +492,6 @@ function frame(now) {
   const bootE = state.bootDone ? 1 : 1 - Math.pow(1 - Math.min(1, state.boot * 1.5), 3);
 
   const onlyG = window.DREEK_ONLY;
-  // Skin dots must not sum where they overlap - additive blending is what turns
-  // the lit side of the face into a flat white blob. Everything else stays
-  // additive, which is what gives the dust and wings their glow.
-  let additive = true;
   for (let i = 0; i < P.length; i++) {
     const p = P[i];
     if (onlyG !== undefined && p.g !== onlyG) continue;
@@ -501,15 +504,8 @@ function frame(now) {
     const size = p.g === G.SKIN
       ? p.s * (1 + state.levelSmooth * 0.30)
       : p.s * (1 + state.levelSmooth * 0.25) * (0.6 + p.layer * 0.8);
-    // Skin dots are a halftone screen: a tight sprite keeps each dot distinct
-    // instead of bleeding into its neighbours and turning the face to fog.
     const skin = p.g === G.SKIN;
-    const img = sprite([col[0] | 0, col[1] | 0, col[2] | 0], Math.max(0.4, size * (skin ? 0.86 : 0.78)), skin ? 1.05 : 2.6);
-    const wantAdditive = !skin;
-    if (wantAdditive !== additive) {
-      additive = wantAdditive;
-      ctx.globalCompositeOperation = additive ? 'lighter' : 'source-over';
-    }
+    const img = sprite([col[0] | 0, col[1] | 0, col[2] | 0], Math.max(0.4, size * 0.78), skin ? 1.9 : 2.6);
     ctx.globalAlpha = bright < 0 ? 0 : bright > 1 ? 1 : bright;
     ctx.drawImage(img, p.x - img.width / 2, p.y - img.height / 2);
   }

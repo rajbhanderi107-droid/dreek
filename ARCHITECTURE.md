@@ -67,20 +67,21 @@ frame it moves toward it. Groups: `SKIN NECK SHOULDER FILAMENT RIDGE MOTE WING`.
 Static groups have fixed targets computed once in `buildFigure()`; `SKIN`,
 `RIDGE` and `WING` recompute theirs every frame from the audio spectrum.
 
-The head is `SKIN`: a halftone screen over `face-data.js`, which holds a 220x300
-8-bit luminance map of the portrait as base64 raw bytes - no image decoder, no
-network fetch. One particle per grid cell, cells below 6% tone skipped so the
-head dissolves into the stars. The map is feathered to black on an ellipse,
-without which the crop rectangle shows as a hard edge down one side.
+The head is `SKIN`: a cloud of ~22,000 specks scattered by rejection sampling
+against `face-data.js`, which holds a 220x300 8-bit luminance map of the
+portrait as base64 raw bytes - no image decoder, no network fetch. It is their
+DENSITY that carries the tone: many where the face is lit, almost none in
+shadow, so the head simply thins out into the star field at its edges.
 
-Three things make the halftone read, and all three were got wrong first:
+Every speck is the same kind of dust and drifts on its own small orbit. That
+distinction is the whole point - a grid of differently sized dots is a halftone
+print of a photograph, which is what this deliberately is not. Sound widens the
+orbits and pushes the cloud outward from the centre of the face.
 
-- Tone comes from dot **area**, not opacity. Driving both makes the lit side of
-  the face burn out.
-- Skin draws in `source-over`, not `lighter`. Additive dots sum where they
-  overlap and flatten the highlights to a solid blob.
-- At full tone a dot must be wide enough to merge with its neighbours, or the
-  brightest areas stall at grey. Its diameter needs to exceed the grid pitch.
+The map is feathered to black on an ellipse; without that the crop rectangle
+shows as a hard edge down one side. The acceptance exponent (`lum ** 1.75`)
+sets the contrast: raise it and only the highlights survive, lower it and the
+features wash out into noise.
 
 To use a different portrait, regenerate `face-data.js`: blur out any existing
 print screen first (it moires against this grid), downsample to ~220x300 grey,

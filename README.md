@@ -1,10 +1,10 @@
 # DREEK
 
-A spoken assistant with a face. The head is a real portrait rendered as a
-halftone of about 11,000 particles - dot size follows the tone, and the whole
-thing dissolves into a star field at the edges. The neck, shoulders, wings and
-terrain around it are drawn from the same particle system and answer to your
-voice.
+A spoken assistant with a face. The head is a cloud of about 22,000 drifting
+particles - it is their density that forms the features, so the face is made of
+dust rather than printed in dots, and it thins out into a star field at the
+edges. The neck, shoulders, wings and terrain around it come from the same
+particle system and answer to your voice.
 
 ## Run it from a clone
 
