@@ -62,7 +62,7 @@ Two invariants, both load-bearing:
 
 ## The renderer
 
-`dreek.js` holds ~11,000 particles in one flat array. Each has a target; each
+`dreek.js` holds ~29,000 particles in one flat array. Each has a target; each
 frame it moves toward it. Groups: `SKIN NECK SHOULDER FILAMENT RIDGE MOTE WING`.
 Static groups have fixed targets computed once in `buildFigure()`; `SKIN`,
 `RIDGE` and `WING` recompute theirs every frame from the audio spectrum.
