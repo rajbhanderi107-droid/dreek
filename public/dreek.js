@@ -1,5 +1,7 @@
-/* DREEK v3 - reactive particle humanoid.
-   Everything on screen is generated: no photograph, no sprite sheet. */
+/* DREEK - reactive particle portrait.
+   The head is a halftone of a real face: a luminance map sampled on a grid,
+   one particle per cell, dot size and brightness following the tone. */
+import { faceAt, FACE_W, FACE_H } from './face-data.js';
 
 const C = document.getElementById('stage');
 const ctx = C.getContext('2d', { alpha: false });
@@ -10,6 +12,8 @@ const PAL = {
   deep:   [24, 118, 214],
   orange: [255, 139, 31],
   hot:    [255, 226, 170],
+  white:  [246, 250, 255],
+  dust:   [126, 146, 168],
 };
 
 const MOODS = {
@@ -71,23 +75,29 @@ function layout() {
   C.width = Math.round(W * DPR); C.height = Math.round(H * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
-  const rx = Math.min(W * 0.088, H * 0.185);
+  // The face is the subject, so it sets the scale: everything else is derived
+  // from it. Sized off both axes so it never crops on a wide or a tall window.
+  const faceH = Math.min(H * 0.60, W * 0.46 * (FACE_H / FACE_W));
+  const faceW = faceH * (FACE_W / FACE_H);
+  const rx = faceW / 2.10;
+
   F = {
     cx: W / 2,
-    cy: H * 0.30,
+    cy: H * 0.40,
     rx: rx,
     ry: rx * 1.24,
+    faceW: faceW,
+    faceH: faceH,
     neckW: rx * 0.40,
     neckLen: rx * 0.62,
     shoulder: rx * 3.1,
-    horizon: H * 0.78,
+    horizon: H * 0.84,
   };
 }
 
 /* ---------- particles ---------- */
 const P = [];
-const G = { RIM: 0, SKULL: 1, NECK: 2, SHOULDER: 3, FILAMENT: 4, FACE: 5, RIDGE: 6, MOTE: 7, WING: 8 };
-const BANDS = 6;
+const G = { SKIN: 0, NECK: 2, SHOULDER: 3, FILAMENT: 4, RIDGE: 6, MOTE: 7, WING: 8 };
 
 function rnd(a, b) { return a + Math.random() * (b - a); }
 
@@ -111,32 +121,30 @@ function buildFigure() {
   const cx = F.cx, cy = F.cy, rx = F.rx, ry = F.ry;
   const neckW = F.neckW, neckLen = F.neckLen, shoulder = F.shoulder, horizon = F.horizon;
 
-  // Head rim: one tight bright contour. The glow is a separate, much fainter
-  // shell - mixing the two into one scattered band is what reads as fog.
-  for (let i = 0; i < 1300; i++) {
-    const a = (i / 1300) * Math.PI * 2;
-    const squash = 1 - 0.13 * Math.max(0, Math.cos(a));       // slight jaw taper
-    const sh = rnd(0.997, 1.003);
-    push(G.RIM, cx + Math.cos(a) * rx * sh, cy + Math.sin(a) * ry * sh * squash,
-      { s: rnd(1.0, 1.9), a: rnd(0.88, 1), layer: 0.9 });
-  }
-  for (let i = 0; i < 260; i++) {
-    const a = Math.random() * Math.PI * 2;
-    const sh = rnd(1.02, 1.14);
-    const squash = 1 - 0.13 * Math.max(0, Math.cos(a));
-    push(G.RIM, cx + Math.cos(a) * rx * sh, cy + Math.sin(a) * ry * sh * squash,
-      { s: rnd(0.6, 1.2), a: rnd(0.05, 0.16), layer: 0.9 });
-  }
+  // The head: a halftone screen over the face map. One particle per grid cell,
+  // skipping cells too dark to show, so the portrait dissolves into the star
+  // field at its edges instead of ending on a rectangle.
+  const faceW = F.faceW, faceH = F.faceH;
+  const faceL = cx - faceW / 2;
+  const faceT = cy - faceH * 0.56;
+  const pitch = Math.max(1.9, faceW / 150);         // spacing of the dot screen
 
-  // Skull striations: faint horizontal contour lines banding the head interior.
-  const LINES = 22;
-  for (let l = 0; l < LINES; l++) {
-    const v = -0.92 + (l / (LINES - 1)) * 1.84;
-    const halfW = Math.sqrt(Math.max(0, 1 - v * v)) * rx * 0.93;
-    const n = Math.max(5, Math.round(halfW * 0.34));
-    for (let i = 0; i < n; i++) {
-      push(G.SKULL, cx + rnd(-halfW, halfW), cy + v * ry + rnd(-0.8, 0.8),
-        { s: rnd(0.4, 0.8), a: rnd(0.05, 0.15), layer: 0.55 });
+  for (let gy = 0; gy * pitch < faceH; gy++) {
+    for (let gx = 0; gx * pitch < faceW; gx++) {
+      // Offset alternate rows: a square screen moires against the features.
+      const ox = (gy & 1) ? pitch * 0.5 : 0;
+      const px = faceL + gx * pitch + ox;
+      const py = faceT + gy * pitch;
+      const u = (px - faceL) / faceW;
+      const v = (py - faceT) / faceH;
+      const lum = faceAt(u, v);
+      if (lum < 0.06) continue;                      // background, not the face
+      push(G.SKIN, px, py, {
+        s: 0.14 + Math.sqrt(lum) * 1.18,
+        a: 0.40 + lum * 0.60,
+        layer: 0.55 + lum * 0.35,
+        u: u, band: Math.round(v * 1000),            // v, kept to 3 decimals
+      });
     }
   }
 
@@ -188,13 +196,6 @@ function buildFigure() {
       if (Math.random() < 0.04 && seeds.length < 16) {
         seeds.push({ x: x, y: y, ang: ang + (Math.random() < 0.5 ? -0.6 : 0.6) });
       }
-    }
-  }
-
-  // Face waveform: separated horizontal ripple lines, the way the face actually reads.
-  for (let b = 0; b < BANDS; b++) {
-    for (let i = 0; i < 220; i++) {
-      push(G.FACE, cx, cy, { s: rnd(1.0, 1.7), a: rnd(0.82, 1), layer: 0.95, band: b, u: i / 220 });
     }
   }
 
@@ -267,24 +268,20 @@ function seedBootPositions() {
 }
 
 /* ---------- reactive targets ---------- */
-// The face is a set of nested contour rings, squashed wide so they read as
-// stacked ripples. Audio pushes the rings outward and warps them.
-function faceTarget(p, t, out) {
-  const cx = F.cx, cy = F.cy, rx = F.rx, ry = F.ry;
+// Skin dots sit on their grid cell and are pushed around by sound: a subtle
+// swell outward from the centre of the face, strongest where the tone is
+// brightest, so the portrait breathes and reacts without losing the likeness.
+function skinTarget(p, t, out) {
   const lvl = state.levelSmooth;
-  // Rings start well off centre; if the innermost one is tiny it collapses into
-  // a blob and the whole set stops reading as contours.
-  const k = (p.band + 1.5) / (BANDS + 0.6);
-  const th = p.u * Math.PI * 2;
+  const dx = p.tx - F.cx;
+  const dy = p.ty - (F.cy + F.ry * 0.05);
+  const d = Math.hypot(dx, dy) || 1;
 
-  const grow = 1 + lvl * 0.22;
-  const wob = 1
-    + 0.055 * Math.sin(th * 3 + t * 1.6 + p.band * 0.8)
-    + 0.035 * Math.sin(th * 6 - t * 2.3 + p.band)
-    + lvl * 0.16 * Math.sin(th * 2 + t * 5.0 + p.band * 1.4);
+  const wob = Math.sin(d * 0.05 - t * 2.6) * (0.5 + 0.5 * Math.sin(t * 0.7 + p.ph));
+  const push = lvl * 7.0 * wob + Math.sin(t * 1.1 + p.ph) * 0.6;
 
-  out[0] = cx + Math.cos(th) * rx * 0.78 * k * grow * wob;
-  out[1] = cy + ry * 0.18 + Math.sin(th) * ry * 0.62 * k * grow * wob;
+  out[0] = p.tx + (dx / d) * push;
+  out[1] = p.ty + (dy / d) * push;
 }
 
 // Terrain must have relief even in silence, otherwise the mountains vanish
@@ -347,12 +344,10 @@ function mix(a, b, k) {
 function groupColor(g, u) {
   const warm = state.moodMix.warm;
   switch (g) {
-    case G.FACE:     return mix(PAL.orange, PAL.hot, 0.25 + 0.55 * state.levelSmooth + warm * 0.4);
-    case G.FILAMENT: return mix(PAL.orange, PAL.cyan, u * 0.9 - warm);
-    case G.RIM:      return mix(PAL.cyan, PAL.hot, Math.max(0, warm) * 0.5);
-    case G.SKULL:    return mix(PAL.deep, PAL.cyan, 0.5);
-    case G.WING:     return mix(PAL.deep, PAL.cyan, 0.35 + Math.abs(u) * 0.65 + warm * 0.3);
-    default:         return mix(PAL.deep, PAL.cyan, 0.65 + warm * 0.2);
+    case G.SKIN:     return mix(PAL.white, PAL.hot, Math.max(0, warm) * 0.75);
+    case G.FILAMENT: return mix(PAL.dust, PAL.hot, 0.30 + warm * 0.5);
+    case G.WING:     return mix(PAL.dust, PAL.white, 0.20 + Math.abs(u) * 0.55 + warm * 0.3);
+    default:         return mix(PAL.dust, PAL.white, 0.35 + warm * 0.25);
   }
 }
 
@@ -369,7 +364,7 @@ function drawRings(dt) {
     r.r += dt * (60 + 180 * state.levelSmooth);
     r.a -= dt * 0.22;
     if (r.a <= 0) { rings.splice(i, 1); continue; }
-    ctx.strokeStyle = 'rgba(86,214,255,' + (r.a * 0.34).toFixed(3) + ')';
+    ctx.strokeStyle = 'rgba(150,175,200,' + (r.a * 0.16).toFixed(3) + ')';
     ctx.beginPath();
     ctx.ellipse(F.cx, F.cy, r.r, r.r * 0.96, 0, Math.PI * 0.08, Math.PI * 0.92);
     ctx.stroke();
@@ -386,7 +381,7 @@ function drawVeins(t) {
     const side = sides[si];
     for (let k = 0; k < 3; k++) {
       const flick = 0.30 + 0.45 * Math.abs(Math.sin(t * (0.7 + k * 0.4) + side * k));
-      ctx.strokeStyle = 'rgba(255,150,50,' + (flick * (0.35 + 0.5 * state.levelSmooth)).toFixed(3) + ')';
+      ctx.strokeStyle = 'rgba(190,205,225,' + (flick * (0.10 + 0.22 * state.levelSmooth)).toFixed(3) + ')';
       ctx.beginPath();
       for (let i = 0; i <= 80; i++) {
         const u = i / 80;
@@ -410,7 +405,7 @@ function drawVeins(t) {
 function stepParticle(p, t, breath, M) {
   let tx = p.tx, ty = p.ty;
 
-    if (p.g === G.FACE) { faceTarget(p, t, tgt); tx = tgt[0]; ty = tgt[1]; }
+    if (p.g === G.SKIN) { skinTarget(p, t, tgt); tx = tgt[0]; ty = tgt[1]; }
     else if (p.g === G.RIDGE) { ridgeTarget(p, t, tgt); tx = tgt[0]; ty = tgt[1]; }
     else if (p.g === G.WING) { wingTarget(p, t, tgt); tx = tgt[0]; ty = tgt[1]; }
     else if (p.g === G.MOTE) {
@@ -422,7 +417,7 @@ function stepParticle(p, t, breath, M) {
     tx += state.px * (6 + p.layer * 22);
     ty += state.py * (4 + p.layer * 14);
 
-    if (p.g !== G.MOTE && p.g !== G.RIDGE && p.g !== G.FACE && p.g !== G.WING) {
+    if (p.g !== G.MOTE && p.g !== G.RIDGE && p.g !== G.SKIN && p.g !== G.WING) {
       ty += (breath - 0.5) * F.ry * 0.045;
       const d = M.drift * (0.9 + state.levelSmooth * 2.4);
       tx += Math.sin(t * 0.9 + p.ph) * 1.6 * d;
@@ -438,10 +433,10 @@ function stepParticle(p, t, breath, M) {
       p.x = tx - Math.cos(ang) * dist;
       p.y = ty - Math.sin(ang) * dist;
     } else {
-      if (p.g === G.FACE) {
+      if (p.g === G.SKIN) {
         // Direct easing, no momentum. The damped spring below is only stable
-        // while 2.57*k < 1, and the face needs to track its target much faster
-        // than that allows - with momentum it overshoots and flings outward.
+        // while 2.57*k < 1, and the skin needs to track faster than that allows
+        // - with momentum the dots overshoot and smear the face.
         p.x += (tx - p.x) * 0.34;
         p.y += (ty - p.y) * 0.34;
       } else {
@@ -490,19 +485,31 @@ function frame(now) {
   const bootE = state.bootDone ? 1 : 1 - Math.pow(1 - Math.min(1, state.boot * 1.5), 3);
 
   const onlyG = window.DREEK_ONLY;
+  // Skin dots must not sum where they overlap - additive blending is what turns
+  // the lit side of the face into a flat white blob. Everything else stays
+  // additive, which is what gives the dust and wings their glow.
+  let additive = true;
   for (let i = 0; i < P.length; i++) {
     const p = P[i];
     if (onlyG !== undefined && p.g !== onlyG) continue;
     stepParticle(p, t, breath, M);
     const col = groupColor(p.g, p.u);
     let bright = p.a * M.gain * (0.55 + 0.45 * breath) * bootE;
-    if (p.g === G.FACE) bright *= 1.0 + 0.5 * state.levelSmooth;
+    if (p.g === G.SKIN) bright *= 1.02 + 0.30 * state.levelSmooth;
     // Wing tips thin out rather than stopping dead.
     if (p.g === G.WING) bright *= 1.05 - 0.55 * Math.abs(p.u);
-    const size = p.s * (1 + state.levelSmooth * (p.g === G.FACE ? 0.8 : 0.25)) * (0.6 + p.layer * 0.8);
-    const face = p.g === G.FACE;
-    // A wide halo on the face bands bleeds across the gaps and fills them in.
-    const img = sprite([col[0] | 0, col[1] | 0, col[2] | 0], Math.max(0.7, size * (face ? 0.72 : 0.78)), face ? 1.5 : 2.6);
+    const size = p.g === G.SKIN
+      ? p.s * (1 + state.levelSmooth * 0.30)
+      : p.s * (1 + state.levelSmooth * 0.25) * (0.6 + p.layer * 0.8);
+    // Skin dots are a halftone screen: a tight sprite keeps each dot distinct
+    // instead of bleeding into its neighbours and turning the face to fog.
+    const skin = p.g === G.SKIN;
+    const img = sprite([col[0] | 0, col[1] | 0, col[2] | 0], Math.max(0.4, size * (skin ? 0.86 : 0.78)), skin ? 1.05 : 2.6);
+    const wantAdditive = !skin;
+    if (wantAdditive !== additive) {
+      additive = wantAdditive;
+      ctx.globalCompositeOperation = additive ? 'lighter' : 'source-over';
+    }
     ctx.globalAlpha = bright < 0 ? 0 : bright > 1 ? 1 : bright;
     ctx.drawImage(img, p.x - img.width / 2, p.y - img.height / 2);
   }

@@ -1,8 +1,10 @@
 # DREEK
 
-A spoken assistant with a face. Everything on screen is generated from about
-10,000 particles a frame - the head contour, the concentric face rings, the
-neck, shoulders and the spectrum terrain. There is no photograph anywhere.
+A spoken assistant with a face. The head is a real portrait rendered as a
+halftone of about 11,000 particles - dot size follows the tone, and the whole
+thing dissolves into a star field at the edges. The neck, shoulders, wings and
+terrain around it are drawn from the same particle system and answer to your
+voice.
 
 ## Run it from a clone
 

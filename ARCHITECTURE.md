@@ -63,19 +63,36 @@ Two invariants, both load-bearing:
 ## The renderer
 
 `dreek.js` holds ~11,000 particles in one flat array. Each has a target; each
-frame it moves toward it. Groups: `RIM SKULL NECK SHOULDER FILAMENT FACE RIDGE
-MOTE WING`. Static groups have fixed targets computed once in `buildFigure()`;
-`FACE`, `RIDGE` and `WING` recompute theirs every frame from the audio spectrum.
+frame it moves toward it. Groups: `SKIN NECK SHOULDER FILAMENT RIDGE MOTE WING`.
+Static groups have fixed targets computed once in `buildFigure()`; `SKIN`,
+`RIDGE` and `WING` recompute theirs every frame from the audio spectrum.
+
+The head is `SKIN`: a halftone screen over `face-data.js`, which holds a 220x300
+8-bit luminance map of the portrait as base64 raw bytes - no image decoder, no
+network fetch. One particle per grid cell, cells below 6% tone skipped so the
+head dissolves into the stars. The map is feathered to black on an ellipse,
+without which the crop rectangle shows as a hard edge down one side.
+
+Three things make the halftone read, and all three were got wrong first:
+
+- Tone comes from dot **area**, not opacity. Driving both makes the lit side of
+  the face burn out.
+- Skin draws in `source-over`, not `lighter`. Additive dots sum where they
+  overlap and flatten the highlights to a solid blob.
+- At full tone a dot must be wide enough to merge with its neighbours, or the
+  brightest areas stall at grey. Its diameter needs to exceed the grid pitch.
+
+To use a different portrait, regenerate `face-data.js`: blur out any existing
+print screen first (it moires against this grid), downsample to ~220x300 grey,
+feather the edges, then base64 the raw bytes.
 
 Things that were learned the hard way and are easy to break again:
 
 - The damped spring `v = (v + e*k) * 0.72` is only stable while `2.57*k < 1`.
-  The face uses direct easing instead, because it needs to track faster than
-  that allows - with momentum it overshoots and flings the rings off screen.
+  The skin uses direct easing instead, because it needs to track faster than
+  that allows - with momentum the dots overshoot and smear the face.
 - Sprites are a solid core plus a halo. A pure radial gradient at 1-2px radius
   throws away nearly all its energy and the whole figure reads as haze.
-- Face rings need more separation than the sprite halo is wide, or they merge
-  into a blob.
 - Wing angles must not carry the side, or one wing lifts while the other drops.
 - Keep `requestAnimationFrame(frame)` exactly as it is. A `setTimeout` fallback
   was tried and silently killed the loop.
