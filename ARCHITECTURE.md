@@ -14,6 +14,8 @@ memory/           Runtime state. Gitignored.
 public/
   index.html      Markup and the early error handler.
   dreek.js        The renderer. Owns the canvas, exports setMood/setLevel/setSpectrum.
+  face-data.js    Luminance map of the portrait, base64 raw grey bytes.
+  body.js         Anatomical luminance field for neck, shoulders and chest.
   app.js          Mic, speech recognition, wake word, TTS, and brain calls.
   style.css
 ```
@@ -63,8 +65,9 @@ Two invariants, both load-bearing:
 ## The renderer
 
 `dreek.js` holds ~29,000 particles in one flat array. Each has a target; each
-frame it moves toward it. Groups: `SKIN BODY EYE MOTE`. `MOTE` is the star field; the other three are the
-figure and recompute their targets every frame so the cloud is never still.
+frame it moves toward it. Groups: `SKIN BODY EYE MOTE`. `MOTE` is the star
+field; the other three are the figure and recompute their targets every frame,
+so the cloud is never still.
 
 The head is `SKIN`: a cloud of ~22,000 specks scattered by rejection sampling
 against `face-data.js`, which holds a 220x300 8-bit luminance map of the
@@ -78,7 +81,7 @@ print of a photograph, which is what this deliberately is not. Sound widens the
 orbits and pushes the cloud outward from the centre of the face.
 
 The map is feathered to black on an ellipse; without that the crop rectangle
-shows as a hard edge down one side. The acceptance exponent (`lum ** 1.75`)
+shows as a hard edge down one side. The acceptance exponent (`lum ** 1.15`)
 sets the contrast: raise it and only the highlights survive, lower it and the
 features wash out into noise.
 
@@ -105,7 +108,6 @@ Things that were learned the hard way and are easy to break again:
   that allows - with momentum the dots overshoot and smear the face.
 - Sprites are a solid core plus a halo. A pure radial gradient at 1-2px radius
   throws away nearly all its energy and the whole figure reads as haze.
-- Wing angles must not carry the side, or one wing lifts while the other drops.
 - Keep `requestAnimationFrame(frame)` exactly as it is. A `setTimeout` fallback
   was tried and silently killed the loop.
 
