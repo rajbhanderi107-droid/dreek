@@ -63,9 +63,8 @@ Two invariants, both load-bearing:
 ## The renderer
 
 `dreek.js` holds ~29,000 particles in one flat array. Each has a target; each
-frame it moves toward it. Groups: `SKIN NECK SHOULDER FILAMENT RIDGE MOTE WING`.
-Static groups have fixed targets computed once in `buildFigure()`; `SKIN`,
-`RIDGE` and `WING` recompute theirs every frame from the audio spectrum.
+frame it moves toward it. Groups: `SKIN BODY EYE MOTE`. `MOTE` is the star field; the other three are the
+figure and recompute their targets every frame so the cloud is never still.
 
 The head is `SKIN`: a cloud of ~22,000 specks scattered by rejection sampling
 against `face-data.js`, which holds a 220x300 8-bit luminance map of the
@@ -82,6 +81,18 @@ The map is feathered to black on an ellipse; without that the crop rectangle
 shows as a hard edge down one side. The acceptance exponent (`lum ** 1.75`)
 sets the contrast: raise it and only the highlights survive, lower it and the
 features wash out into noise.
+
+The body - neck, trapezius, clavicles, upper chest - comes from `body.js`, an
+anatomical luminance field evaluated the same way, so head and body read as one
+person. It is built as a lit surface (a silhouette with a top edge, shaded by
+depth below it) rather than a pile of blobs, which is the difference between a
+torso and a slab. Its piecewise curves must stay continuous: a step anywhere in
+`topAt` puts a bright seam straight down the render.
+
+Warmth is deliberate. Cold monochrome, hollow eye sockets and a figure floating
+in pure black read as a haunting, not a person - so the palette is warm ivory,
+the eyes are given an iris and a catchlight, and a faint ambient glow sits
+behind the head. Do not "clean up" any of those three.
 
 To use a different portrait, regenerate `face-data.js`: blur out any existing
 print screen first (it moires against this grid), downsample to ~220x300 grey,

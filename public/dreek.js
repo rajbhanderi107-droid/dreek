@@ -2,18 +2,19 @@
    The head is a halftone of a real face: a luminance map sampled on a grid,
    one particle per cell, dot size and brightness following the tone. */
 import { faceAt, FACE_W, FACE_H } from './face-data.js';
+import { bodyLum } from './body.js';
 
 const C = document.getElementById('stage');
 const ctx = C.getContext('2d', { alpha: false });
 
 const PAL = {
-  bg:     [2, 5, 12],
+  bg:     [8, 6, 9],
   cyan:   [86, 214, 255],
   deep:   [24, 118, 214],
   orange: [255, 139, 31],
-  hot:    [255, 226, 170],
-  white:  [246, 250, 255],
-  dust:   [126, 146, 168],
+  hot:    [255, 206, 150],
+  white:  [255, 238, 214],
+  dust:   [182, 158, 132],
 };
 
 const MOODS = {
@@ -39,7 +40,8 @@ const state = {
 /* ---------- sprite cache: additive dots without shadowBlur ---------- */
 const sprites = new Map();
 function sprite(rgb, radius, haloScale) {
-  const r = Math.round(radius * 2) / 2;
+  const safe = Number.isFinite(radius) ? Math.min(24, Math.max(0.4, radius)) : 0.8;
+  const r = Math.round(safe * 2) / 2;
   const hs = haloScale || 2.6;
   const key = rgb[0] + ',' + rgb[1] + ',' + rgb[2] + '|' + r + '|' + hs;
   let s = sprites.get(key);
@@ -88,6 +90,9 @@ function layout() {
     ry: rx * 1.24,
     faceW: faceW,
     faceH: faceH,
+    faceT: H * 0.40 - faceH * 0.56,
+    hw: faceW * 0.57,                 // the head itself, without the map margin
+    jawY: (H * 0.40 - faceH * 0.56) + faceH * 0.82,
     neckW: rx * 0.40,
     neckLen: rx * 0.62,
     shoulder: rx * 3.1,
@@ -97,7 +102,7 @@ function layout() {
 
 /* ---------- particles ---------- */
 const P = [];
-const G = { SKIN: 0, NECK: 2, SHOULDER: 3, FILAMENT: 4, RIDGE: 6, MOTE: 7, WING: 8 };
+const G = { SKIN: 0, BODY: 1, EYE: 2, MOTE: 7 };
 
 function rnd(a, b) { return a + Math.random() * (b - a); }
 
@@ -119,7 +124,6 @@ function push(g, tx, ty, opt) {
 function buildFigure() {
   P.length = 0;
   const cx = F.cx, cy = F.cy, rx = F.rx, ry = F.ry;
-  const neckW = F.neckW, neckLen = F.neckLen, shoulder = F.shoulder, horizon = F.horizon;
 
   // The head is a cloud, not a print. Particles are scattered by rejection
   // sampling against the face map, so it is their DENSITY that carries the
@@ -142,11 +146,11 @@ function buildFigure() {
     if (lum < 0.05) continue;
     // Accept with probability rising with tone. The exponent below 1 keeps the
     // mid tones populated, otherwise only the highlights survive.
-    if (Math.random() > Math.pow(lum, 1.75)) continue;
+    if (Math.random() > Math.pow(lum, 1.15)) continue;
     placed++;
     push(G.SKIN, faceL + u * faceW, faceT + v * faceH, {
       s: rnd(0.34, 0.86),
-      a: 0.13 + lum * 0.30,
+      a: 0.16 + lum * 0.26,
       layer: 0.45 + lum * 0.4,
       u: u,
       // Each speck keeps its own small orbit so the cloud is never still.
@@ -154,95 +158,56 @@ function buildFigure() {
     });
   }
 
-  const jaw = cy + ry * 0.90;
-  const collar = jaw + neckLen;
+  // Eyes. Empty sockets are the single thing that makes a face read as a ghost
+  // rather than a person, so each gets an iris and a catchlight. Measured from
+  // the map, not guessed: the tone profile dips at u = 0.34 and 0.66, v = 0.45.
+  for (const eu of [0.335, 0.665]) {
+    const ex = faceL + eu * faceW;
+    const ey = faceT + 0.452 * faceH;
+    const er = faceW * 0.043;
 
-  // Neck: two side curves flaring into the collar.
+    for (let i = 0; i < 240; i++) {                 // the eye itself, softly filled
+      const a = Math.random() * Math.PI * 2;
+      const rr = er * Math.pow(Math.random(), 0.62);
+      push(G.EYE, ex + Math.cos(a) * rr, ey + Math.sin(a) * rr * 0.80,
+        { s: rnd(0.32, 0.72), a: rnd(0.22, 0.46), layer: 0.8, u: 0.25 });
+    }
+    for (let i = 0; i < 34; i++) {                  // catchlight, up and inward
+      const a = Math.random() * Math.PI * 2;
+      const rr = er * 0.22 * Math.sqrt(Math.random());
+      push(G.EYE, ex + Math.cos(a) * rr - er * 0.24, ey + Math.sin(a) * rr - er * 0.28,
+        { s: rnd(0.34, 0.62), a: rnd(0.34, 0.58), layer: 0.95, u: 0.85 });
+    }
+  }
+
+  // The body: neck, trapezius, clavicles and upper chest, sampled from the same
+  // kind of luminance field as the face so the two read as one person rather
+  // than a portrait sitting on top of some geometry.
+  //
+  // bodyLum works in head-widths from the jawline, so both are anchored to the
+  // actual head inside the face map - not to the map's padded box.
+  const hw = F.hw, jawY = F.jawY;
+
+  const BODY_WANT = Math.max(6000, Math.min(16000, Math.round(hw * hw * 0.95)));
+  let bPlaced = 0, bTries = 0;
+  while (bPlaced < BODY_WANT && bTries < BODY_WANT * 40) {
+    bTries++;
+    const bx = rnd(-1.55, 1.55);
+    const by = rnd(-0.02, 1.58);
+    const lum = bodyLum(bx, by);
+    if (lum < 0.05) continue;
+    if (Math.random() > Math.pow(lum, 1.15)) continue;
+    bPlaced++;
+    push(G.BODY, cx + bx * hw, jawY + by * hw, {
+      s: rnd(0.34, 0.86),
+      a: 0.12 + lum * 0.28,
+      layer: 0.4 + lum * 0.35,
+      u: bx,
+      bin: Math.floor(rnd(0.5, 2.8) * 100),
+    });
+  }
+
   const sides = [-1, 1];
-  for (let si = 0; si < 2; si++) {
-    const side = sides[si];
-    for (let i = 0; i < 420; i++) {
-      const u = i / 419;
-      const w = neckW * (1 + Math.pow(u, 2.2) * 1.9);
-      push(G.NECK, cx + side * w + rnd(-1.5, 1.5) - side * Math.pow(Math.random(), 2.4) * neckW * 0.9, jaw + u * neckLen,
-        { s: rnd(0.7, 1.6), a: rnd(0.45, 1), layer: 0.85, u: u });
-    }
-  }
-
-  // Shoulders: a broad collar arc that slopes down and out, not a thin stick.
-  for (let si = 0; si < 2; si++) {
-    const side = sides[si];
-    for (let i = 0; i < 1500; i++) {
-      const u = Math.pow(i / 1499, 0.85);
-      const x = cx + side * (neckW * 1.7 + u * shoulder);
-      const drop = Math.pow(u, 0.62) * ry * 0.55;
-      // Fill downward from the shoulder line so it reads as mass, not an outline.
-      const fill = Math.pow(Math.random(), 1.6) * ry * 0.85;
-      push(G.SHOULDER, x + rnd(-4, 4), collar + drop + fill,
-        { s: rnd(0.6, 1.7), a: fill < ry * 0.06 ? rnd(0.9, 1) : rnd(0.10, 0.30), layer: 0.8, u: u });
-    }
-  }
-
-  // Chest filaments: branching neural veins running down from the throat.
-  const xLimit = shoulder * 1.05;
-  const seeds = [];
-  for (let b = 0; b < 5; b++) {
-    seeds.push({ x: cx + rnd(-neckW, neckW), y: jaw + neckLen * 0.2, ang: Math.PI / 2 + rnd(-0.45, 0.45) });
-  }
-  for (let si = 0; si < seeds.length && si < 16; si++) {
-    let x = seeds[si].x, y = seeds[si].y, ang = seeds[si].ang;
-    const steps = 80;
-    for (let i = 0; i < steps; i++) {
-      ang += rnd(-0.15, 0.15);
-      ang += (Math.PI / 2 - ang) * 0.06;                       // keep the flow downward
-      x += Math.cos(ang) * rnd(2, 5);
-      y += Math.sin(ang) * rnd(2, 5);
-      if (y > horizon || Math.abs(x - cx) > xLimit) break;
-      push(G.FILAMENT, x, y, { s: rnd(0.5, 1.4), a: rnd(0.3, 0.95), layer: 0.75, u: i / steps });
-      if (Math.random() < 0.04 && seeds.length < 16) {
-        seeds.push({ x: x, y: y, ang: ang + (Math.random() < 0.5 ? -0.6 : 0.6) });
-      }
-    }
-  }
-
-  // Spectrum terrain: three ridge layers each side, driven by audio bins.
-  for (let si = 0; si < 2; si++) {
-    const side = sides[si];
-    for (let layer = 0; layer < 3; layer++) {
-      const n = 460;
-      for (let i = 0; i < n; i++) {
-        const u = i / (n - 1);
-        push(G.RIDGE, 0, 0, {
-          s: rnd(0.6, 1.8), a: rnd(0.35, 1),
-          layer: 0.25 + layer * 0.22,
-          u: u * side || 0.0001 * side,
-          band: layer,
-          bin: Math.floor(u * 44),
-        });
-      }
-    }
-  }
-
-  // Wings: feathered arcs sweeping up and out from the shoulders. Each feather
-  // is driven by its own spectrum bin, so the span opens when there is sound.
-  const FEATHERS = 15;
-  for (let si = 0; si < 2; si++) {
-    const side = sides[si];
-    for (let f = 0; f < FEATHERS; f++) {
-      const n = 60;
-      for (let i = 0; i < n; i++) {
-        push(G.WING, 0, 0, {
-          s: rnd(0.45, 1.3), a: rnd(0.30, 1),
-          layer: 0.30 + (f / FEATHERS) * 0.55,
-          // Density falls off toward the tip, so a feather tapers instead of
-          // ending in a blunt edge.
-          u: Math.pow(i / (n - 1), 0.72) * side || 0.0001 * side,
-          band: f,
-          bin: Math.floor((f / 15) * 40),
-        });
-      }
-    }
-  }
 
   // Parallax dust.
   for (let i = 0; i < 420; i++) {
@@ -291,58 +256,6 @@ function skinTarget(p, t, out) {
   out[1] = p.ty + Math.sin(t * sp * 0.86 + p.ph * 1.3) * r + (dy / d) * swell;
 }
 
-// Terrain must have relief even in silence, otherwise the mountains vanish
-// whenever nobody is talking. Audio lifts this floor, it does not replace it.
-function binAt(i, t) {
-  const idle = 0.34
-    + 0.22 * Math.sin(i * 0.55 + t * 0.21)
-    + 0.16 * Math.sin(i * 1.31 - t * 0.13)
-    + 0.10 * Math.sin(i * 2.70 + t * 0.37);
-  const live = state.spectrum[i < 47 ? i : 47] || 0;
-  return Math.max(idle, live * 1.15);
-}
-
-// A feather runs from the shoulder outward along an arc that lifts as it goes.
-// Its reach and spread answer to the audio, so the wings beat when DREEK speaks.
-const FEATHERS = 15;
-
-function wingTarget(p, t, out) {
-  const side = p.u < 0 ? -1 : 1;
-  const u = Math.abs(p.u);
-  const f = p.band / (FEATHERS - 1);
-  const lvl = state.levelSmooth;
-  const bin = binAt(p.bin, t);
-
-  const root = F.cx + side * (F.neckW * 1.8);
-  const rootY = F.cy + F.ry * 0.9 + F.neckLen;
-
-  // The angle must not carry the side, or one wing lifts while the other drops.
-  // Only x mirrors; both wings rise by the same amount.
-  const beat = Math.sin(t * 1.5 + f * 2.4) * (0.05 + lvl * 0.16);
-  const a = -0.22 + f * 1.20 + beat;                 // below horizontal up to steeply raised
-  const stagger = 0.82 + 0.18 * Math.sin(f * 9.7);  // ragged trailing edge
-  const reach = F.rx * (1.6 + f * 1.7) * stagger * (0.74 + 0.28 * bin + lvl * 0.28);
-
-  const curve = Math.pow(u, 1.2);
-  out[0] = root + side * curve * reach;
-  out[1] = rootY - Math.sin(a) * curve * reach * 0.70;
-}
-
-function ridgeTarget(p, t, out) {
-  const side = p.u < 0 ? -1 : 1;
-  const u = Math.abs(p.u);
-  const spanIn = F.cx + side * F.rx * 1.35;
-  const spanOut = F.cx + side * (W * 0.55);
-  const bin = binAt(p.bin, t);
-  const base = H * (0.23 + 0.10 * p.band);
-  const ridge = Math.abs(Math.sin(u * (5 + p.band * 3) + p.band * 2.1 + t * 0.16))
-    * (0.45 + 0.55 * Math.abs(Math.sin(u * (13 + p.band * 5) - t * 0.09)));
-  const relief = base * (0.30 + 0.90 * bin) * ridge;
-  const skirt = Math.pow(Math.random(), 1.9) * relief;   // fills the slope below the crest
-  out[0] = spanIn + (spanOut - spanIn) * u;
-  out[1] = F.horizon + p.band * H * 0.030 - relief + skirt;
-}
-
 /* ---------- colour ---------- */
 function mix(a, b, k) {
   k = k < 0 ? 0 : k > 1 ? 1 : k;
@@ -352,57 +265,9 @@ function groupColor(g, u) {
   const warm = state.moodMix.warm;
   switch (g) {
     case G.SKIN:     return mix(PAL.white, PAL.hot, Math.max(0, warm) * 0.75);
-    case G.FILAMENT: return mix(PAL.dust, PAL.hot, 0.30 + warm * 0.5);
-    case G.WING:     return mix(PAL.dust, PAL.white, 0.20 + Math.abs(u) * 0.55 + warm * 0.3);
+    case G.BODY:     return mix(PAL.dust, PAL.white, 0.55 + warm * 0.3);
+    case G.EYE:      return mix(PAL.hot, PAL.white, u);
     default:         return mix(PAL.dust, PAL.white, 0.35 + warm * 0.25);
-  }
-}
-
-/* ---------- sonar rings and lightning veins ---------- */
-const rings = [];
-let ringClock = 0;
-
-function drawRings(dt) {
-  ringClock += dt * state.moodMix.ring;
-  if (ringClock > 1.6) { ringClock = 0; rings.push({ r: F.rx * 1.02, a: 1.0 }); }
-  ctx.lineWidth = 1.2;
-  for (let i = rings.length - 1; i >= 0; i--) {
-    const r = rings[i];
-    r.r += dt * (60 + 180 * state.levelSmooth);
-    r.a -= dt * 0.22;
-    if (r.a <= 0) { rings.splice(i, 1); continue; }
-    ctx.strokeStyle = 'rgba(150,175,200,' + (r.a * 0.16).toFixed(3) + ')';
-    ctx.beginPath();
-    ctx.ellipse(F.cx, F.cy, r.r, r.r * 0.96, 0, Math.PI * 0.08, Math.PI * 0.92);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.ellipse(F.cx, F.cy, r.r, r.r * 0.96, 0, Math.PI * 1.08, Math.PI * 1.92);
-    ctx.stroke();
-  }
-}
-
-function drawVeins(t) {
-  ctx.lineWidth = 1.4;
-  const sides = [-1, 1];
-  for (let si = 0; si < 2; si++) {
-    const side = sides[si];
-    for (let k = 0; k < 3; k++) {
-      const flick = 0.30 + 0.45 * Math.abs(Math.sin(t * (0.7 + k * 0.4) + side * k));
-      ctx.strokeStyle = 'rgba(190,205,225,' + (flick * (0.10 + 0.22 * state.levelSmooth)).toFixed(3) + ')';
-      ctx.beginPath();
-      for (let i = 0; i <= 80; i++) {
-        const u = i / 80;
-        const x = F.cx + side * (F.rx * 1.35 + u * (W * 0.55 - F.rx * 1.35));
-        const bin = binAt(Math.floor(u * 44), t);
-        const base = H * (0.23 + 0.10 * k);
-        const ridge = Math.abs(Math.sin(u * (5 + k * 3) + k * 2.1 + t * 0.16))
-          * (0.45 + 0.55 * Math.abs(Math.sin(u * (13 + k * 5) - t * 0.09)));
-        const y = F.horizon + k * H * 0.030 - base * (0.30 + 0.90 * bin) * ridge * 0.42
-          + Math.sin(u * 40 + t * 3 + k) * 4;
-        if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-      }
-      ctx.stroke();
-    }
   }
 }
 
@@ -412,48 +277,43 @@ function drawVeins(t) {
 function stepParticle(p, t, breath, M) {
   let tx = p.tx, ty = p.ty;
 
-    if (p.g === G.SKIN) { skinTarget(p, t, tgt); tx = tgt[0]; ty = tgt[1]; }
-    else if (p.g === G.RIDGE) { ridgeTarget(p, t, tgt); tx = tgt[0]; ty = tgt[1]; }
-    else if (p.g === G.WING) { wingTarget(p, t, tgt); tx = tgt[0]; ty = tgt[1]; }
-    else if (p.g === G.MOTE) {
-      tx = p.tx + Math.sin(t * (0.2 + p.layer * 0.5) + p.ph) * 40 * p.layer;
-      ty = p.ty + Math.cos(t * (0.17 + p.layer * 0.4) + p.ph) * 26 * p.layer;
-    }
+  if (p.g === G.SKIN || p.g === G.BODY || p.g === G.EYE) { skinTarget(p, t, tgt); tx = tgt[0]; ty = tgt[1]; }
+  else if (p.g === G.MOTE) {
+    tx = p.tx + Math.sin(t * (0.2 + p.layer * 0.5) + p.ph) * 40 * p.layer;
+    ty = p.ty + Math.cos(t * (0.17 + p.layer * 0.4) + p.ph) * 26 * p.layer;
+  }
 
-    // Nearer layers swing further, so the bust turns rather than slides.
-    tx += state.px * (6 + p.layer * 22);
-    ty += state.py * (4 + p.layer * 14);
+  // Nearer layers swing further, so the bust turns rather than slides.
+  tx += state.px * (6 + p.layer * 22);
+  ty += state.py * (4 + p.layer * 14);
 
-    if (p.g !== G.MOTE && p.g !== G.RIDGE && p.g !== G.SKIN && p.g !== G.WING) {
-      ty += (breath - 0.5) * F.ry * 0.045;
-      const d = M.drift * (0.9 + state.levelSmooth * 2.4);
-      tx += Math.sin(t * 0.9 + p.ph) * 1.6 * d;
-      ty += Math.cos(t * 1.1 + p.ph) * 1.6 * d;
-    }
+  if (p.g !== G.MOTE) {
+    ty += (breath - 0.5) * F.ry * 0.045;
+    const d = M.drift * (0.9 + state.levelSmooth * 2.4);
+    tx += Math.sin(t * 0.9 + p.ph) * 1.6 * d;
+    ty += Math.cos(t * 1.1 + p.ph) * 1.6 * d;
+  }
 
-    if (!state.bootDone) {
-      const e = Math.max(0, Math.min(1, (state.boot - p.delay) / (1 - p.delay)));
-      const k = 1 - Math.pow(1 - e, 3);
-      const swirl = (1 - k) * 1.9;
-      const ang = Math.atan2(ty - p.by, tx - p.bx) + swirl;
-      const dist = Math.hypot(tx - p.bx, ty - p.by) * (1 - k);
-      p.x = tx - Math.cos(ang) * dist;
-      p.y = ty - Math.sin(ang) * dist;
-    } else {
-      if (p.g === G.SKIN) {
-        // Direct easing, no momentum. The damped spring below is only stable
-        // while 2.57*k < 1, and the skin needs to track faster than that allows
-        // - with momentum the dots overshoot and smear the face.
-        p.x += (tx - p.x) * 0.34;
-        p.y += (ty - p.y) * 0.34;
-      } else {
-        const k = 0.12 + 0.16 * p.layer;
-        p.vx = (p.vx + (tx - p.x) * k) * 0.72;
-        p.vy = (p.vy + (ty - p.y) * k) * 0.72;
-        p.x += p.vx; p.y += p.vy;
-      }
-    }
-
+  if (!state.bootDone) {
+    const e = Math.max(0, Math.min(1, (state.boot - p.delay) / (1 - p.delay)));
+    const k = 1 - Math.pow(1 - e, 3);
+    const swirl = (1 - k) * 1.9;
+    const ang = Math.atan2(ty - p.by, tx - p.bx) + swirl;
+    const dist = Math.hypot(tx - p.bx, ty - p.by) * (1 - k);
+    p.x = tx - Math.cos(ang) * dist;
+    p.y = ty - Math.sin(ang) * dist;
+  } else if (p.g === G.SKIN || p.g === G.BODY || p.g === G.EYE) {
+    // Direct easing, no momentum. The damped spring below is only stable while
+    // 2.57*k < 1, and the skin needs to track faster than that allows - with
+    // momentum the specks overshoot and smear the face.
+    p.x += (tx - p.x) * 0.34;
+    p.y += (ty - p.y) * 0.34;
+  } else {
+    const k = 0.12 + 0.16 * p.layer;
+    p.vx = (p.vx + (tx - p.x) * k) * 0.72;
+    p.vy = (p.vy + (ty - p.y) * k) * 0.72;
+    p.x += p.vx; p.y += p.vy;
+  }
 }
 
 /* ---------- main loop ---------- */
@@ -486,8 +346,18 @@ function frame(now) {
   ctx.fillRect(0, 0, W, H);
   ctx.globalCompositeOperation = 'lighter';
 
-  drawRings(dt);
-  drawVeins(t);
+  // Ambient warmth behind the head. Without it she is lit from nowhere and
+  // floating in black, which is most of why the portrait felt like a haunting.
+  {
+    const g = ctx.createRadialGradient(F.cx, F.cy, 0, F.cx, F.cy, F.faceH * 0.95);
+    const k = 0.085 + 0.05 * state.levelSmooth;
+    g.addColorStop(0, 'rgba(120, 92, 66, ' + k.toFixed(3) + ')');
+    g.addColorStop(0.55, 'rgba(70, 58, 52, ' + (k * 0.45).toFixed(3) + ')');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
 
   const bootE = state.bootDone ? 1 : 1 - Math.pow(1 - Math.min(1, state.boot * 1.5), 3);
 
@@ -499,12 +369,11 @@ function frame(now) {
     const col = groupColor(p.g, p.u);
     let bright = p.a * M.gain * (0.55 + 0.45 * breath) * bootE;
     if (p.g === G.SKIN) bright *= 1.02 + 0.30 * state.levelSmooth;
-    // Wing tips thin out rather than stopping dead.
-    if (p.g === G.WING) bright *= 1.05 - 0.55 * Math.abs(p.u);
+    if (p.g === G.BODY) bright *= 0.88 + 0.26 * state.levelSmooth;
     const size = p.g === G.SKIN
       ? p.s * (1 + state.levelSmooth * 0.30)
       : p.s * (1 + state.levelSmooth * 0.25) * (0.6 + p.layer * 0.8);
-    const skin = p.g === G.SKIN;
+    const skin = p.g === G.SKIN || p.g === G.BODY || p.g === G.EYE;
     const img = sprite([col[0] | 0, col[1] | 0, col[2] | 0], Math.max(0.4, size * 0.78), skin ? 1.9 : 2.6);
     ctx.globalAlpha = bright < 0 ? 0 : bright > 1 ? 1 : bright;
     ctx.drawImage(img, p.x - img.width / 2, p.y - img.height / 2);

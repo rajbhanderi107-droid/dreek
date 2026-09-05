@@ -3,7 +3,9 @@
 A spoken assistant with a face. The head is a cloud of about 22,000 drifting
 particles - it is their density that forms the features, so the face is made of
 dust rather than printed in dots, and it thins out into a star field at the
-edges. The neck, shoulders, wings and terrain around it come from the same
+edges. The neck, shoulders and chest are built from an anatomical field and
+drawn the same way, so it reads as one person rather than a portrait on a
+stand. The neck, shoulders, wings and terrain around it come from the same
 particle system and answer to your voice.
 
 ## Run it from a clone
