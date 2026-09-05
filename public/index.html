@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>DREEK</title>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <div class="hud">
+    <div class="rail">
+      <span class="brand">DREEK</span>
+      <span id="status" class="status" data-tone="idle">booting</span>
+      <span class="pip" id="micPip" data-on="0">MIC</span>
+      <span class="pip" id="wakePip" data-on="0">WAKE</span>
+      <span class="pip" id="brainPip" data-on="0">BRAIN</span>
+      <span id="activity" class="activity" data-on="0"></span>
+      <span class="mood">mood <b id="moodTag">neutral</b></span>
+    </div>
+
+    <div id="log" class="log"></div>
+
+    <div class="caption-wrap">
+      <div id="caption" class="caption"></div>
+    </div>
+
+    <div class="dock">
+      <button id="micBtn" class="btn">Enable microphone</button>
+      <button id="openBtn" class="btn warn" hidden>Open in a real browser</button>
+      <input id="textInput" class="field" type="text" autocomplete="off"
+             placeholder="Say &quot;Dreek…&quot;, or type here and press Enter  ( / to focus )" />
+      <button id="wakeToggle" class="btn small" data-on="1">wake word: on</button>
+      <select id="langSel" class="sel" title="Recognition language">
+        <option value="en">English</option>
+        <option value="hi">हिन्दी</option>
+        <option value="gu">ગુજરાતી</option>
+      </select>
+      <select id="voiceSel" class="sel" title="Speaking voice"></select>
+    </div>
+  </div>
+
+  <script>
+    window.DREEK_DEBUG = new URLSearchParams(location.search).has("debug");
+    // Surface failures in the console panel itself. A silent dead canvas is the
+    // worst failure mode for something that is meant to look alive.
+    window.__dreekErrors = [];
+    function dreekFail(what) {
+      window.__dreekErrors.push(what);
+      var log = document.getElementById('log');
+      if (log) { var d = document.createElement('div'); d.className = 'line sys'; d.textContent = what; log.appendChild(d); }
+    }
+    window.addEventListener('error', function (e) {
+      dreekFail('Error: ' + (e.message || e.error) + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno);
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      dreekFail('Unhandled: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+    });
+  </script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

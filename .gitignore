@@ -1,0 +1,15 @@
+# Runtime state - conversations, remembered facts, pending reminders, screen
+# captures. Personal, machine-local, and regenerated on demand.
+memory/
+
+# Your own profile. profile.example.md is the template that ships.
+profile.md
+
+node_modules/
+npm-debug.log*
+.env
+.env.*
+!.env.example
+
+.DS_Store
+Thumbs.db

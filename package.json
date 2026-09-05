@@ -1,0 +1,15 @@
+{
+  "name": "dreek",
+  "version": "3.0.0",
+  "description": "A spoken desktop assistant with a generated particle face. Streams answers, sees your screen, acts on your machine, and remembers.",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check server.mjs && node --check brain.mjs && node --check public/app.js && node --check public/dreek.js"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT",
+  "private": false,
+  "keywords": ["assistant", "voice", "particles", "canvas", "claude", "anthropic"]
+}
