@@ -541,7 +541,91 @@ if __name__ == '__main__':
         for north in 'TBLR':
             c, A, B = layout_pair(north)
             orientation_sheet(pdf, north, c, A, B)
-            export_dxf(north, A, B)
             print('sheet', north, 'ok')
         schedule_sheet(pdf)
-    print('done')
+    print('pdf done')
+
+
+def export_combined(path='Furniture_Layout_4BHK_Duplex_ALL_VARIANTS.dxf'):
+    """One editable DXF: the 4 Vastu variants stacked (each = lower + upper level, both units),
+    each with title, north arrow and Vastu notes; then the furniture schedule as text."""
+    import ezdxf
+    from ezdxf.enums import TextEntityAlignment as TA
+    doc = ezdxf.new('R2013', setup=True); doc.header['$INSUNITS'] = 4
+    msp = doc.modelspace()
+    cols = {'A-FURN': 30, 'A-FURN-BED': 32, 'A-FURN-SOFA': 34, 'A-FURN-WARD': 42, 'A-FURN-KIT': 8, 'A-FURN-RUG': 211,
+            'A-FURN-PLANT': 94, 'A-FURN-POOJA': 40, 'A-FURN-SAN': 150, 'A-FURN-AC': 140, 'A-FURN-CURTAIN': 150,
+            'A-FURN-PANEL': 33, 'A-CLG': 211, 'A-FLOOR-INLAY': 42, 'A-FURN-TEXT': 7, 'A-ROOM-TEXT': 5, 'A-TITLE': 1, 'A-NOTES': 7}
+    for n, c in cols.items(): doc.layers.add(n, color=c)
+    base_txt = []
+    for e in DB['entities']:
+        if e['type'] in ('MTEXT', 'TEXT') and 'SECLINE' not in e.get('layer', ''):
+            p = e.get('insertionPoint') or e.get('startPoint')
+            if abs(p['x']) > 200000: continue
+            t = re.sub(r'\\[A-Za-z][^;]*;', '', e.get('text', '')).replace('{', '').replace('}', '').replace('\\P', ' ')
+            base_txt.append((t, p['x'], p['y'], min(e.get('textHeight', 150) or 150, 200), e.get('layer', '0')))
+    STEP = 26000
+    for k, north in enumerate('TBLR'):
+        dy = -k * STEP
+        c, A, B = layout_pair(north)
+        inside = lambda x, y: (1500 <= x <= 29500 or 40500 <= x <= 68500) and 0 <= y <= 18500
+        for _, L, v in P:
+            if 'FIX FURNITURE' in L or not all(inside(x, y) for x, y in v): continue
+            if L not in doc.layers: doc.layers.add(L, color=7 if 'WALL' in L.upper() else 8)
+            msp.add_lwpolyline([(x, y + dy) for x, y in v], dxfattribs={'layer': L})
+        for t, x, y, h, L in base_txt:
+            if not inside(x, y): continue
+            if L not in doc.layers: doc.layers.add(L)
+            msp.add_text(t, height=h, dxfattribs={'layer': L}).set_placement((x, y + dy))
+        for e in prims_of(A, False) + prims_of(B, True):
+            ls = 'DASHED' if e.get('ls') in ('--', ':') else 'CONTINUOUS'
+            if e['kind'] == 'poly':
+                msp.add_lwpolyline([(x, y + dy) for x, y in e['pts']], close=e['closed'], dxfattribs={'layer': e['layer'], 'linetype': ls})
+            elif e['kind'] == 'circle' and e['r'] > 1:
+                msp.add_circle((e['c'][0], e['c'][1] + dy), e['r'], dxfattribs={'layer': e['layer']})
+            elif e['kind'] == 'text' and e['s']:
+                for i, line in enumerate(e['s'].split('\n')):
+                    msp.add_text(line, height=e['h'] * 0.8, dxfattribs={'layer': e['layer']}).set_placement(
+                        (e['p'][0], e['p'][1] - i * e['h'] * 1.1 + dy), align=TA.MIDDLE_CENTER)
+        # title, level names, north arrow, Vastu notes
+        msp.add_text(f'VASTU VARIANT {k + 1} — USE IF NORTH IS AT THE {SIDE_WORD[north]} OF THE DRAWING',
+                     height=600, dxfattribs={'layer': 'A-TITLE'}).set_placement((2900, 19300 + dy))
+        msp.add_text('LOWER LEVEL', height=350, dxfattribs={'layer': 'A-TITLE'}).set_placement((2900, 18400 + dy))
+        msp.add_text('UPPER LEVEL', height=350, dxfattribs={'layer': 'A-TITLE'}).set_placement((41800, 18400 + dy))
+        for xa in (AX['lower'], AX['upper']):
+            for lab, xx in (('UNIT A', xa - 5600), ('UNIT B', xa + 5600)):
+                msp.add_text(lab, height=300, dxfattribs={'layer': 'A-TITLE'}).set_placement((xx, 2000 + dy), align=TA.MIDDLE_CENTER)
+        cx, cy, r = 71000, 15500 + dy, 1100
+        msp.add_circle((cx, cy), r, dxfattribs={'layer': 'A-TITLE'})
+        ang = {'T': 90, 'L': 180, 'B': 270, 'R': 0}[north]
+        a = math.radians(ang)
+        tip = (cx + 0.9 * r * math.cos(a), cy + 0.9 * r * math.sin(a))
+        msp.add_lwpolyline([tip, (cx + 0.25 * r * math.cos(a + 2.3), cy + 0.25 * r * math.sin(a + 2.3)),
+                            (cx + 0.25 * r * math.cos(a - 2.3), cy + 0.25 * r * math.sin(a - 2.3))], close=True, dxfattribs={'layer': 'A-TITLE'})
+        msp.add_text('N', height=450, dxfattribs={'layer': 'A-TITLE'}).set_placement(
+            (cx + 1.35 * r * math.cos(a), cy + 1.35 * r * math.sin(a)), align=TA.MIDDLE_CENTER)
+        lines = ['VASTU RESOLUTION            UNIT A                          UNIT B']
+        for (n, va, ga), (_, vb, gb) in zip(choice_rows(c, A), choice_rows(Lo.mirror_compass(c), B)):
+            lines.append(f'{n:<26}{va} [{ga}]   |   {vb} [{gb}]')
+        lines.append('')
+        lines.append('BUILDER PLAN AUDIT (fixed)')
+        for (n, za, ga), (_, zb, gb) in zip(Lo.vastu_audit(c), Lo.vastu_audit(Lo.mirror_compass(c))):
+            lines.append(f'{n:<26}A: {za} [{ga}]   B: {zb} [{gb}]')
+        for i, ln in enumerate(lines):
+            msp.add_text(ln, height=170, dxfattribs={'layer': 'A-NOTES'}).set_placement((69000, 13300 - i * 330 + dy))
+    # schedule + standards as editable text
+    y = -4 * STEP + 17000
+    msp.add_text('FURNITURE SCHEDULE (per unit)', height=500, dxfattribs={'layer': 'A-TITLE'}).set_placement((2900, y)); y -= 800
+    for row in SCHEDULE:
+        msp.add_text(f'{row[0]:<18}{row[1]:<48}{row[2]:<34}{str(row[3]):<8}{row[4]}', height=180,
+                     dxfattribs={'layer': 'A-NOTES'}).set_placement((2900, y)); y -= 330
+    y2 = -4 * STEP + 17000
+    msp.add_text('DESIGN STANDARDS / VASTU RULES', height=500, dxfattribs={'layer': 'A-TITLE'}).set_placement((41800, y2)); y2 -= 800
+    for a_, b_ in STANDARDS + [('', '')] + VASTU:
+        msp.add_text(f'{a_:<36}{b_}', height=180, dxfattribs={'layer': 'A-NOTES'}).set_placement((41800, y2)); y2 -= 330
+    doc.saveas(path)
+    return path
+
+
+if __name__ == '__main__':
+    print(export_combined())
