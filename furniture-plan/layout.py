@@ -34,6 +34,11 @@ class Layout:
         self.KEEP = []       # clear zones: (name, floor, shape...)
         self.choices = {}
         self.notes = []
+        self.wards = []
+        self.placed, self.skipped = [], []
+        self.last_bed = None
+        self.beds = []
+        self.labels = []
 
     # ---------------------------------------------------------- primitives
     def poly(self, pts, layer, fill=None, closed=True, lw=0.5, ls='-'):
@@ -73,6 +78,40 @@ class Layout:
         f.line(W - 400, D * 0.45 + 350, W - 50, D * 0.45 + 350, 'A-FURN-BED', 0.3)
         f.rect(50, D * 0.74, W - 50, D * 0.74 + 260, 'A-FURN-BED', '#e9dcc6', 0.3)
         self.reg(name, floor, x0, y0, x1, y1)
+        self.last_bed = (floor, x0, y0, x1, y1, front)
+        self.beds.append((name, self.last_bed))
+        # premium: full-height fluted / upholstered wall panel behind bed and bedside tables
+        n0 = len(self.F)
+        f.rect(-SIDE - 120, -70, W + SIDE + 120, 0, 'A-FURN-PANEL', '#c9ab7f', 0.5)
+        for k in range(int((W + 2 * SIDE + 240) / 70)):
+            u = -SIDE - 120 + 35 + k * 70
+            f.line(u, -70, u, 0, 'A-FURN-PANEL', 0.18)
+        panel = self.F[n0:]; del self.F[n0:]
+        self.F[0:0] = panel
+
+    def bench_for(self, bed):
+        floor, x0, y0, x1, y1, front = bed
+        f = self.frame(x0, y0, x1, y1, front); W, D = f.W, f.D
+        pts = [f.t(150, D + 60), f.t(W - 150, D + 460)]
+        bx0, by0 = min(p[0] for p in pts), min(p[1] for p in pts)
+        bx1, by1 = max(p[0] for p in pts), max(p[1] for p in pts)
+        def draw():
+            self.rect(bx0, by0, bx1, by1, 'A-FURN-SOFA', '#d8c8b4', 0.6)
+            self.rect(bx0 + 40, by0 + 40, bx1 - 40, by1 - 40, 'A-FURN-SOFA', '#e9dfd2', 0.3)
+            self.text(((bx0 + bx1) / 2, (by0 + by1) / 2), 'BENCH', 50)
+        return self.optional('bed-end bench', floor, (bx0, by0, bx1, by1), draw)
+
+    def optional(self, name, floor, r, draw, kind='furn'):
+        """premium accessory: placed only if it collides with nothing and blocks no clear zone."""
+        for it in self.FOOT:
+            if it[1] == floor and it[6] == 'furn' and _overlap(r, it[2:6]):
+                self.skipped.append(name); return False
+        for k in self.KEEP:
+            if k[1] != floor: continue
+            if (k[2] == 'rect' and _overlap(r, k[3])) or (k[2] == 'arc' and _rect_hits_arc(r, k[3])):
+                self.skipped.append(name); return False
+        draw(); self.reg(name, floor, *r, kind); self.placed.append(name)
+        return True
 
     def side_table(self, floor, x0, y0, s=SIDE):
         self.rect(x0, y0, x0 + s, y0 + s, 'A-FURN', WOOD)
@@ -94,8 +133,8 @@ class Layout:
             u = 85 + i * 170
             if u < W - 60:
                 f.line(u - 60, D * 0.5 - 150, u + 60, D * 0.5 + 150, 'A-FURN-WARD', 0.2)
-        self.text(f.t(W / 2, D / 2 + 40), label + (' (SLIDING)' if sliding else '') + (' + LOFT' if loft else ''), 62)
         self.reg(label.lower(), floor, x0, y0, x1, y1)
+        self.wards.append((floor, (x0, y0, x1, y1), self.frame(x0, y0, x1, y1, front), label, loft, W))
 
     def sofa(self, floor, x0, y0, x1, y1, front, seats=3, name='sofa'):
         f = self.frame(x0, y0, x1, y1, front); W, D = f.W, f.D
@@ -203,6 +242,9 @@ class Layout:
         self.text(f.t(u + w / 2, 700), 'SINK', 50)
 
     def label(self, x, y, name, w=None, d=None, h=150, sub=None):
+        self.labels.append((x, y, name, w, d, h, sub))
+
+    def _draw_label(self, x, y, name, w=None, d=None, h=150, sub=None):
         self.text((x, y + 70), name, h, 'A-ROOM-TEXT', True, '#1d2b4f')
         if w:
             self.text((x, y - 110), f"{ft(w)} x {ft(d)}", h * 0.68, 'A-ROOM-TEXT', False, '#4a5a80')
@@ -270,15 +312,15 @@ def bedroom1(L):
         cy = 5450
         L.bed(fl, 'BR-1 bed', 3919, cy - kw / 2, 3919 + kl, cy + kw / 2, 'L')
         L.side_table(fl, 3919, cy - kw / 2 - SIDE); L.side_table(fl, 3919, cy + kw / 2)
-        L.wardrobe(fl, 7284, 3516, 7884, 6736, 'R')
+        L.wardrobe(fl, 7284, 4500, 7884, 6736, 'R')
         L.unit(fl, 4569, 7236, 5769, 7686, 'T', 'DRESSER', name='dresser'); L.round_table(fl, 5169, 6950, 170, 'stool')
-        L.armchair(fl, 6200, 3620, 6950, 4370, 'B', 'recliner'); L.text((6575, 4480), 'RECLINER', 52)
+        L.armchair(fl, 7084, 3570, 7834, 4320, 'R', 'recliner'); L.text((7459, 4430), 'RECLINER', 52)
         L.ac(5950, 7456, 6900, 7686)
     elif head == 'T':
         cx = 5515
         L.bed(fl, 'BR-1 bed', cx - kw / 2, 7686 - kl, cx + kw / 2, 7686, 'T')
         L.side_table(fl, cx - kw / 2 - SIDE, 7686 - SIDE); L.side_table(fl, cx + kw / 2, 7686 - SIDE)
-        L.wardrobe(fl, 7284, 3516, 7884, 6736, 'R')
+        L.wardrobe(fl, 7284, 4500, 7884, 6736, 'R')
         L.unit(fl, 3919, 4600, 4369, 5800, 'L', 'DRESSER', name='dresser')
         L.armchair(fl, 4100, 3620, 4850, 4370, 'B', 'recliner'); L.text((4475, 4480), 'RECLINER', 52)
         L.ac(3919, 5900, 4149, 6900)
@@ -286,9 +328,9 @@ def bedroom1(L):
         cy = 5265
         L.bed(fl, 'BR-1 bed', 7884 - kl, cy - kw / 2, 7884, cy + kw / 2, 'R')
         L.side_table(fl, 7884 - SIDE, cy - kw / 2 - SIDE); L.side_table(fl, 7884 - SIDE, cy + kw / 2)
-        L.wardrobe(fl, 3919, 3516, 4519, 6936, 'L')
+        L.wardrobe(fl, 3919, 4500, 4519, 6936, 'L')
         L.unit(fl, 4900, 7236, 6100, 7686, 'T', 'DRESSER', name='dresser'); L.round_table(fl, 5500, 6950, 170, 'stool')
-        L.armchair(fl, 4750, 3620, 5500, 4370, 'B', 'recliner'); L.text((5125, 4480), 'RECLINER', 52)
+        L.armchair(fl, 3969, 3570, 4719, 4320, 'L', 'recliner'); L.text((4344, 4430), 'RECLINER', 52)
         L.ac(4700, 7456, 5650, 7686)
     L.curtain(3969, 3416 + 130, 7834, 3416 + 130)
     L.label(5900 if head != 'R' else 5100, 5900 if head == 'L' else (5000 if head == 'T' else 6250), 'BEDROOM-1', 3965, 4270, sub='PARENTS')
@@ -305,25 +347,25 @@ def bedroom2(L):
         cy = 5671
         L.bed(fl, 'BR-2 bed', 42776, cy - kw / 2, 42776 + kl, cy + kw / 2, 'L')
         L.side_table(fl, 42776, cy - kw / 2 - SIDE); L.side_table(fl, 42776, cy + kw / 2)
-        L.wardrobe(fl, 46141, 3736, 46741, 6956, 'R')
+        L.wardrobe(fl, 46141, 4600, 46741, 6956, 'R')
         L.unit(fl, 43526, 7456, 44926, 7906, 'T', 'STUDY / DRESSER', name='study'); L.chair(fl, 44226, 7180, 'N')
-        L.armchair(fl, 45250, 3800, 45950, 4500, 'B')
+        L.armchair(fl, 45991, 3700, 46691, 4400, 'R')
         L.ac(43700 - 600, 7676, 44700 - 600, 7906)
     elif head == 'T':
         cx = 44265
         L.bed(fl, 'BR-2 bed', cx - kw / 2, 7906 - kl, cx + kw / 2, 7906, 'T')
         L.side_table(fl, cx - kw / 2 - SIDE, 7906 - SIDE); L.side_table(fl, cx + kw / 2, 7906 - SIDE)
-        L.wardrobe(fl, 46141, 3736, 46741, 6956, 'R')
+        L.wardrobe(fl, 46141, 4600, 46741, 6956, 'R')
         L.unit(fl, 42776, 4000, 43376, 5400, 'L', 'STUDY', name='study'); L.chair(fl, 43650, 4700, 'W')
-        L.armchair(fl, 45200, 3800, 45900, 4500, 'B')
+        L.armchair(fl, 45991, 3700, 46691, 4400, 'R')
         L.ac(42776, 5800, 43006, 6800)
     else:
         cy = 5265
         L.bed(fl, 'BR-2 bed', 46741 - kl, cy - kw / 2, 46741, cy + kw / 2, 'R')
         L.side_table(fl, 46741 - SIDE, cy - kw / 2 - SIDE); L.side_table(fl, 46741 - SIDE, cy + kw / 2)
-        L.wardrobe(fl, 42776, 3736, 43376, 7056, 'L')
+        L.wardrobe(fl, 42776, 4600, 43376, 7056, 'L')
         L.unit(fl, 43700, 7456, 45100, 7906, 'T', 'STUDY / DRESSER', name='study'); L.chair(fl, 44400, 7180, 'N')
-        L.armchair(fl, 43650, 3800, 44350, 4500, 'B')
+        L.armchair(fl, 42826, 3700, 43526, 4400, 'L')
         L.ac(45200, 7676, 46200, 7906)
     L.curtain(42826, 3636 + 130, 46691, 3636 + 130)
     L.label(45300 if head == 'L' else (44300 if head == 'T' else 44000), 5900 if head != 'T' else 4900, 'BEDROOM-2', 3965, 4270, sub='SON / GUEST')
@@ -384,7 +426,7 @@ def bedroom4(L):
         L.side_table(fl, 54365 - SIDE, cy - kw / 2 - SIDE); L.side_table(fl, 54365 - SIDE, cy + kw / 2)
         L.wardrobe(fl, 50630, 9761, 52530, 10361, 'B', 'WARDROBE')
         L.tv_unit(fl, 50630, 12000, 51030, 13800, 'L', 1250)
-        L.armchair(fl, 53550, 13800, 54300, 14550, 'R'); L.round_table(fl, 53300, 14350, 160)
+        L.sofa(fl, 52800, 13900, 54300, 14500, 'B', 2, 'chaise lounge'); L.text((53550, 14200), 'CHAISE LOUNGE', 46)
         L.rug(51300, 11400, 52150, 13000, '#efe4da')
         L.ac(50630, 12450, 50860, 13450, 'AC 1.5T (above TV)')
     else:
@@ -392,15 +434,16 @@ def bedroom4(L):
         L.bed(fl, 'BR-4 bed', cx - kw / 2, 9761, cx + kw / 2, 9761 + kl, 'B')
         L.side_table(fl, cx - kw / 2 - SIDE, 9761); L.side_table(fl, cx + kw / 2, 9761)
         L.wardrobe(fl, 50630, 12111, 51230, 13736, 'L', 'WARDROBE')
-        L.unit(fl, 48685, 10411, 49235, 10971, 'L', 'DRESSER', name='dresser', h=48)
+        L.text((49000, 10700), 'FULL-LENGTH MIRROR\nON WALL', 42, color='#777')
         L.unit(fl, cx - 700, 9761 + kl + 50, cx + 700, 9761 + kl + 500, 'T', 'BED-END BENCH', fill=SOFT, name='bench')
-        L.armchair(fl, 53550, 13800, 54300, 14550, 'R'); L.round_table(fl, 53300, 14350, 160)
+        L.sofa(fl, 52800, 13900, 54300, 14500, 'B', 2, 'chaise lounge'); L.text((53550, 14200), 'CHAISE LOUNGE', 46)
         L.ac(54135, 12500, 54365, 13500)
         L.text((52300, 13300), 'TV (OPTIONAL) ON\nWARDROBE PANEL', 50, color='#777')
     L.curtain(50680, 14636 - 120, 54315, 14636 - 120)
     # master balcony
     L.armchair(fl, 50900, 15300, 51550, 15950, 'L'); L.armchair(fl, 52150, 15300, 52800, 15950, 'R')
-    L.round_table(fl, 51850, 15625, 220, 'balcony table'); L.plant(fl, 52850, 14980, 150)
+    L.round_table(fl, 51850, 15625, 220, 'balcony table'); L.plant(fl, 52700, 15000, 140)
+    L.rect(52931, 14800, 53081, 16100, 'A-FURN-PLANT', '#9fc48f', 0.5)
     L.label(52500, 13400 if head == 'R' else 12700, 'MASTER BED-4', 3735, 4875)
     L.label(49650, 10800, 'DRESS', 1945, 2250, 110)
 
@@ -586,8 +629,9 @@ def lower_misc(L):
     L.reg('jhula', fl, 13900, 15500, 15200, 16100)
     L.keep_rect('Jhula swing arc', fl, 13900, 14900, 15200, 15500)
     L.text((14550, 15350), 'JHULA (SWING)', 55)
-    L.armchair(fl, 11950, 15500, 12600, 16150, 'T'); L.armchair(fl, 12950, 15500, 13600, 16150, 'T')
-    L.round_table(fl, 12775, 15270, 190, 'balcony table')
+    L.sofa(fl, 11800, 15500, 13500, 16250, 'T', 2, 'outdoor sofa'); L.text((12650, 15650), 'OUTDOOR SOFA', 46)
+    L.rect(12350, 14850, 12950, 15250, 'A-FURN', WOOD, 0.6); L.reg('balcony table', fl, 12350, 14850, 12950, 15250)
+    L.rect(15359, 14650, 15509, 16300, 'A-FURN-PLANT', '#9fc48f', 0.5); L.text((15250, 16380), 'VERTICAL GARDEN', 44, color='#3d6b2e')
     for x in (10300, 10800, 11300): L.plant(fl, x, 16050, 200)
     L.label(12000, 14900, 'BALCONY', 5495, 1830, 105)
     # lower toilet (parents use): glass shower partition + grab bars
@@ -596,7 +640,7 @@ def lower_misc(L):
     L.poly([(5250, 8300), (5250, 8650)], 'A-FURN-SAN', None, False, 1.4)
     L.text((5700, 9230), 'GRAB BARS · ANTI-SKID', 44, color='#2a6fa8')
     L.label(5900, 8950, 'TOILET', 2135, 1625, 100)
-    L.text((5350, 10200), 'UNDER-STAIR\nSTORAGE', 50, color='#777')
+    L.text((5350, 10200), 'UNDER-STAIR: PEBBLE COURT\n+ UPLIGHT / STORAGE', 48, color='#777')
 
 
 def upper_misc(L):
@@ -610,18 +654,150 @@ def upper_misc(L):
     L.poly([(44300, 9646), (44300, 8750)], 'A-FURN-SAN', None, False, 0.8)
     L.text((43900, 8550), 'SHOWER', 46, color='#2a6fa8')
     L.label(44700, 8420, 'TOILET', 2135, 1625, 95)
+    # master toilet: bathtub with shower over + glass screen, double vanity
+    L.rect(48745, 15791, 50455, 16521, 'A-FURN-SAN', '#ffffff', 0.7)
+    L.rect(48845, 15871, 50355, 16441, 'A-FURN-SAN', '#e6f1f8', 0.4); L.circ((50155, 16156), 40, 'A-FURN-SAN', None, 0.4)
+    L.text((49600, 16156), 'BATHTUB + SHOWER', 50, color='#2a6fa8')
+    L.poly([(49300, 15791), (49300, 15400)], 'A-FURN-SAN', None, False, 0.8)
+    L.rect(48685, 13300, 49235, 14800, 'A-FURN-SAN', STONE, 0.7)
+    for yy in (13700, 14400):
+        L.rect(48745, yy - 220, 49135, yy + 220, 'A-FURN-SAN', '#fff', 0.4); L.circ((48800, yy), 25, 'A-FURN-SAN', None, 0.3)
+    L.text((49450, 14050), 'DOUBLE\nVANITY', 46, color='#2a6fa8')
+    # kids toilet: vanity counter + glass shower
+    L.rect(48020, 13300, 48570, 14800, 'A-FURN-SAN', STONE, 0.7)
+    L.rect(48130, 13830, 48510, 14270, 'A-FURN-SAN', '#fff', 0.4)
+    L.text((47450, 16150), 'WALK-IN SHOWER', 46, color='#2a6fa8')
     for x0, x1, lab in ((46740, 48570, 'TOILET'), (48685, 50515, 'TOILET')):
-        L.text(((x0 + x1) / 2, 16150), 'SHOWER', 46, color='#2a6fa8')
         L.label((x0 + x1) / 2, 13200 if x0 < 48000 else 13500, lab, 1830, 4455, 95)
-    L.text((47450, 14250), 'VANITY', 46, color='#2a6fa8'); L.text((49800, 14250), 'VANITY', 46, color='#2a6fa8')
+    L.text((47450, 14050), 'VANITY', 46, color='#2a6fa8')
     L.label(51850, 15100, 'BALCONY', 2450, 1425, 95)
     L.text((44200, 10900), 'STAIR', 90, color='#777')
+
+
+ROOMS = [   # name, floor, rect, zone, floor finish
+    ('Living + Dining', 'lower', (6894, 9541, 15509, 14416), 'public', 'marble'),
+    ('Kitchen', 'lower', (3919, 11850, 6779, 16361), 'service', 'tile'),
+    ('Wash', 'lower', (6894, 14531, 9899, 16361), 'service', 'tile'),
+    ('Balcony', 'lower', (10014, 14531, 15509, 16361), 'public', 'deck'),
+    ('Bedroom-1 (Parents)', 'lower', (3919, 3416, 7884, 7686), 'private', 'wood'),
+    ('Toilet', 'lower', (4644, 7801, 6779, 9426), 'service', 'wet'),
+    ('Passage', 'lower', (6894, 7801, 7884, 9541), 'circulation', 'marble'),
+    ('Staircase', 'lower', (3919, 9541, 6779, 11850), 'circulation', 'stair'),
+    ('Bedroom-2 (Son/Guest)', 'upper', (42776, 3636, 46741, 7906), 'private', 'wood'),
+    ('Passage', 'upper', (45750, 8021, 46740, 9646), 'circulation', 'wood'),
+    ('Toilet BR-2', 'upper', (43500, 8021, 45635, 9646), 'service', 'wet'),
+    ('Bedroom-3 (Kids)', 'upper', (42776, 12126, 46625, 16581), 'private', 'wood'),
+    ('Toilet BR-3', 'upper', (46740, 12126, 48570, 16581), 'service', 'wet'),
+    ('Toilet BR-4', 'upper', (48685, 12126, 50515, 16581), 'service', 'wet'),
+    ('Family lobby', 'upper', (45525, 9761, 48570, 12011), 'circulation', 'marble'),
+    ('Staircase', 'upper', (42776, 9761, 45525, 12011), 'circulation', 'stair'),
+    ('Dress', 'upper', (48685, 9761, 50630, 12011), 'private', 'wood'),
+    ('Master Bedroom-4', 'upper', (50630, 9761, 54365, 14636), 'private', 'wood'),
+    ('Master balcony', 'upper', (50630, 14751, 53081, 16176), 'private', 'deck'),
+]
+
+
+def room_of(floor, r):
+    cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
+    for n, fl, rr, z, fin in ROOMS:
+        if fl == floor and rr[0] - 5 <= cx <= rr[2] + 5 and rr[1] - 5 <= cy <= rr[3] + 5:
+            return rr
+    return None
+
+
+def premium(L):
+    # bed-end benches where the foot passage stays >= 750 mm (kids room keeps its play space)
+    for name, bed in L.beds:
+        if 'BR-3' not in name and 'BR-4' not in name or ('BR-4' in name and L.choices['Master bed head'] == 'R'):
+            L.bench_for(bed)
+    # living: sofa-end side tables + floor lamp, only where they fit
+    sofa = [f for f in L.FOOT if f[0] == 'sofa'][0]
+    x0, y0, x1, y1 = sofa[2:6]
+    if (y1 - y0) > (x1 - x0):
+        cx = (x0 + x1) / 2
+        for r in ((cx - 225, y0 - 500, cx + 225, y0 - 50), (cx - 225, y1 + 50, cx + 225, y1 + 500)):
+            L.optional('sofa side table', 'lower', r, lambda r=r: (L.rect(*r, 'A-FURN', WOOD, 0.6), L.circ(((r[0] + r[2]) / 2, (r[1] + r[3]) / 2), 120, 'A-FURN', '#fff', 0.3)))
+    ct = [f for f in L.FOOT if f[0] == 'coffee table'][0]
+    ccx, ccy = (ct[2] + ct[4]) / 2, (ct[3] + ct[5]) / 2
+    L.circ((ccx, ccy), 380, 'A-CLG', None, 0.5); L.circ((ccx, ccy), 120, 'A-CLG', None, 0.4)
+    L.text((ccx, ccy - 470), 'FEATURE LIGHT', 40, color='#8a7a9a')
+    L.circ((8500, 12200), 520, 'A-CLG', None, 0.5)
+    for a in range(0, 360, 45):
+        L.circ((8500 + 420 * math.cos(math.radians(a)), 12200 + 420 * math.sin(math.radians(a))), 45, 'A-CLG', None, 0.4)
+    L.text((8500, 11560), 'CHANDELIER', 40, color='#8a7a9a')
+    # cove ceilings (dashed): living, dining, parents and master bedrooms
+    for r in ((10464, 9991, 15059, 13966), (7344, 9991, 9564, 13966), (4369, 3866, 7434, 7236), (51080, 10211, 53915, 14186)):
+        L.rect(*r, 'A-CLG', None, 0.45, ':')
+    # brass inlay medallion at the main door (floor)
+    for rr in (330, 230, 90):
+        L.circ((9104, 10180), rr, 'A-FLOOR-INLAY', None, 0.5)
+    for a in range(0, 360, 30):
+        L.poly([(9104 + 90 * math.cos(math.radians(a)), 10180 + 90 * math.sin(math.radians(a))),
+                (9104 + 330 * math.cos(math.radians(a)), 10180 + 330 * math.sin(math.radians(a)))], 'A-FLOOR-INLAY', None, False, 0.3)
+    L.text((9104, 10600), 'BRASS INLAY', 40, color='#a07a2a')
+    # premium specification call-outs
+    pj = [f for f in L.FOOT if f[0] == 'pooja unit'][0]
+    L.text(((pj[2] + pj[4]) / 2, (pj[3] + pj[5]) / 2 - 330 if pj[3] > 12000 else (pj[3] + pj[5]) / 2 + 330),
+           'MARBLE BACKDROP · CNC JAALI\nSHUTTERS · BRASS BELLS', 38, color='#8a4b00')
+    L.text((5350, 12350), 'QUARTZ TOP · BUILT-IN OVEN\n+ MW STACK · COFFEE STATION', 40, color='#777')
+    L.text((47050, 11900), 'ART WALL + PICTURE LIGHT', 42, color='#777')
+
+
+def place_labels(L):
+    """move each room tag to the nearest spot (within 1.6 m) where it covers no furniture."""
+    for x, y, name, w, d, h, sub in L.labels:
+        if not name:
+            continue
+        floor = 'lower' if x < 30000 else 'upper'
+        bw = max(len(name) * h * 0.72, 900 if w else 0) / 2
+        top, bot = h * 1.0, (h * 0.9 if w else 0) + (h * 0.95 if sub else 0) + h * 0.4
+        room = room_of(floor, (x, y, x, y))
+        best = (x, y)
+        cands = sorted(((x + dx, y + dy) for dx in range(-1600, 1601, 100) for dy in range(-1600, 1601, 100)),
+                       key=lambda p: (p[0] - x) ** 2 + (p[1] - y) ** 2)
+        for cx, cy in cands:
+            box = (cx - bw, cy - bot, cx + bw, cy + top)
+            if room and not (room[0] + 60 <= box[0] and box[2] <= room[2] - 60 and room[1] + 60 <= box[1] and box[3] <= room[3] - 60):
+                continue
+            if any(it[1] == floor and it[6] in ('furn', 'inbuilt') and _overlap(box, it[2:6], 0) for it in L.FOOT):
+                continue
+            best = (cx, cy); break
+        L._draw_label(best[0], best[1], name, w, d, h, sub)
+
+
+def finalize(L):
+    place_labels(L)
+    """wardrobe shutter logic: measure the clear floor in front; < 900 mm -> sliding, else hinged."""
+    L.wardrobe_report = []
+    for floor, r, f, label, loft, W in L.wards:
+        room = room_of(floor, r) or r
+        fr = f.f
+        if fr == 'N': clear = room[3] - r[3]
+        elif fr == 'S': clear = r[1] - room[1]
+        elif fr == 'E': clear = room[2] - r[2]
+        else: clear = r[0] - room[0]
+        for it in L.FOOT:
+            if it[1] != floor or it[6] != 'furn' or it[2:6] == r: continue
+            a = it[2:6]
+            if fr in 'NS' and a[0] < r[2] - 5 and a[2] > r[0] + 5:
+                d = a[1] - r[3] if fr == 'N' else r[1] - a[3]
+            elif fr in 'EW' and a[1] < r[3] - 5 and a[3] > r[1] + 5:
+                d = a[0] - r[2] if fr == 'E' else r[0] - a[2]
+            else:
+                continue
+            if d >= -5: clear = min(clear, max(d, 0))
+        sliding = clear < 900
+        if sliding:
+            f.line(0, f.D - 60, f.W * 0.55, f.D - 60, 'A-FURN-WARD', 0.35)
+        L.text(f.t(W / 2, f.D / 2 + 40), f"{label}{' + LOFT' if loft else ''}\n{'SLIDING' if sliding else 'HINGED'} · {int(W)} RM", 58)
+        L.wardrobe_report.append((label, floor, int(W), int(clear), 'SLIDING' if sliding else 'HINGED'))
 
 
 def build(compass, unit='A'):
     L = Layout(compass, unit)
     living_dining(L); kitchen(L); bedroom1(L); lower_misc(L)
     bedroom2(L); bedroom3(L); bedroom4(L); upper_misc(L)
+    premium(L); finalize(L)
     return L
 
 
