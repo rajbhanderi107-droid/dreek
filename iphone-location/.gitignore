@@ -1,0 +1,4 @@
+venv/
+__pycache__/
+last_location.json
+access_key.txt

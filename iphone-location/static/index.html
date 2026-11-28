@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Location">
+<meta name="theme-color" content="#0f1115">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%233b82f6'/%3E%3Cpath d='M90 30c-25 0-44 19-44 43 0 33 44 77 44 77s44-44 44-77c0-24-19-43-44-43z' fill='white'/%3E%3Ccircle cx='90' cy='73' r='16' fill='%233b82f6'/%3E%3C/svg%3E">
+<title>iPhone Location Changer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --bg:#0f1115; --panel:#181b22; --line:#2a2f3a; --text:#e8eaf0; --muted:#9aa3b2;
+          --accent:#3b82f6; --green:#22c55e; --red:#ef4444; --amber:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--text); display:flex; height:100vh; }
+  aside { width:340px; min-width:300px; background:var(--panel); border-right:1px solid var(--line);
+          padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:14px; }
+  #map { flex:1; }
+  h1 { font-size:17px; margin:0; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 6px; }
+  section { border:1px solid var(--line); border-radius:10px; padding:12px; }
+  select, input, button { font:inherit; color:var(--text); background:#0f1218; border:1px solid var(--line);
+          border-radius:8px; padding:8px 10px; width:100%; }
+  button { cursor:pointer; background:#232838; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); font-weight:600; }
+  button.danger { background:var(--red); border-color:var(--red); font-weight:600; }
+  button:disabled { opacity:.5; cursor:wait; }
+  .row { display:flex; gap:8px; margin-top:8px; }
+  .row > * { flex:1; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:99px; font-size:12px; font-weight:600; }
+  .idle { background:#2a2f3a; } .fixed { background:var(--green); color:#04210f; }
+  .route { background:var(--accent); } .disconnected { background:var(--amber); color:#2a1a00; }
+  .tabs { display:flex; gap:6px; } .tabs button.on { border-color:var(--accent); background:#1d2a45; }
+  #msg { white-space:pre-wrap; font-size:13px; color:var(--muted); min-height:20px; }
+  #msg.err { color:#fca5a5; }
+  .fav { display:flex; gap:6px; align-items:center; margin-top:6px; }
+  .fav span { flex:1; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .fav button { width:auto; padding:4px 8px; }
+  small { color:var(--muted); }
+  #qr { background:#fff; padding:10px; border-radius:8px; width:max-content; margin:8px auto 0; }
+  #phoneLink { word-break:break-all; font-size:12px; }
+  /* iPhone layout: map on top, controls below, big touch targets */
+  @media (max-width:760px) {
+    body { flex-direction:column-reverse; height:100dvh; }
+    #map { flex:0 0 45dvh; }
+    aside { width:100%; min-width:0; flex:1; border-right:0; border-top:1px solid var(--line);
+            padding:12px 12px calc(12px + env(safe-area-inset-bottom)); }
+    select, input, button { font-size:16px; padding:12px; }  /* 16px stops iOS zooming in */
+    #phoneBox { display:none !important; }
+  }
+</style>
+</head>
+<body>
+<aside>
+  <div><h1>📍 iPhone Location Changer</h1><small>Changes GPS for Maps, Find My and every app.</small></div>
+
+  <section>
+    <h2>1 · iPhone</h2>
+    <select id="device"><option>Searching…</option></select>
+    <div class="row"><button id="refresh">Refresh</button><button id="prepare">Prepare iPhone</button></div>
+  </section>
+
+  <section>
+    <h2>2 · Where</h2>
+    <div class="row" style="margin-top:0"><input id="search" placeholder="Search a place or address"><button id="go" style="flex:0 0 60px">Go</button></div>
+    <div class="row"><input id="lat" placeholder="Latitude"><input id="lon" placeholder="Longitude"></div>
+    <div class="tabs row">
+      <button id="tabFixed" class="on">Teleport</button><button id="tabRoute">Walk / Drive</button>
+    </div>
+    <div id="routeBox" style="display:none">
+      <small>Click the map to add route points (<span id="nPts">0</span> added).</small>
+      <div class="row">
+        <select id="speed">
+          <option value="5">🚶 Walk 5 km/h</option><option value="10">🏃 Run 10 km/h</option>
+          <option value="18">🚲 Bike 18 km/h</option><option value="50">🚗 Car 50 km/h</option>
+          <option value="100">🛣️ Highway 100 km/h</option>
+        </select>
+        <button id="clearRoute" style="flex:0 0 80px">Clear</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3 · Apply</h2>
+    <button id="apply" class="primary">Set this location on iPhone</button>
+    <div class="row"><button id="stop" class="danger">Stop · Use real GPS</button></div>
+    <p style="margin:10px 0 0">Status: <span id="status" class="pill idle">idle</span></p>
+    <div id="msg"></div>
+  </section>
+
+  <section>
+    <h2>🔑 Phone-only mode</h2>
+    <small>Want to change location with no computer later? Create a pairing file here once, then
+      import it into an on-device location app (e.g. Locus or WaypointApp with LocalDevVPN).</small>
+    <div class="row"><button id="pairing">Create pairing file</button></div>
+    <small>⚠️ This file gives full access to your iPhone. Don't share it or upload it anywhere.</small>
+  </section>
+
+  <section id="phoneBox" style="display:none">
+    <h2>📱 Control from your iPhone</h2>
+    <small>iPhone on the same Wi-Fi: open the Camera and scan this code. Then in Safari tap
+      Share → <b>Add to Home Screen</b> to get an app icon.</small>
+    <div id="qr"></div>
+    <p id="phoneLink"></p>
+    <small>Keep this code private. It works like a password.</small>
+  </section>
+
+  <section>
+    <h2>Saved places</h2>
+    <button id="saveFav">★ Save current pin</button>
+    <div id="favs"></div>
+  </section>
+
+  <small>Keep the iPhone plugged in and this window open. Find My updates within a few minutes.
+    Pressing Stop (or unplugging) returns the phone to its real location.</small>
+</aside>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const map = L.map('map').setView([40.758, -73.9855], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+
+let mode = 'fixed', devices = [], pin = null, routePts = [], routeLine = null, routeMarkers = [], liveDot = null;
+
+function msg(t, err) { $('msg').textContent = t || ''; $('msg').className = err ? 'err' : ''; }
+function selDevice() { return devices.find(d => d.udid === $('device').value); }
+
+function setPin(lat, lon, pan) {
+  $('lat').value = lat.toFixed(6); $('lon').value = lon.toFixed(6);
+  if (!pin) pin = L.marker([lat, lon], { draggable: true }).addTo(map)
+    .on('dragend', e => { const p = e.target.getLatLng(); setPin(p.lat, p.lng); });
+  pin.setLatLng([lat, lon]);
+  if (pan) map.setView([lat, lon], Math.max(map.getZoom(), 15));
+}
+
+function drawRoute() {
+  routeMarkers.forEach(m => m.remove()); routeMarkers = [];
+  if (routeLine) routeLine.remove();
+  routeLine = L.polyline(routePts, { color: '#3b82f6', weight: 4 }).addTo(map);
+  routePts.forEach((p, i) => routeMarkers.push(
+    L.circleMarker(p, { radius: 6, color: i ? '#3b82f6' : '#22c55e', fillOpacity: 1 }).addTo(map)));
+  $('nPts').textContent = routePts.length;
+}
+
+map.on('click', e => {
+  if (mode === 'fixed') setPin(e.latlng.lat, e.latlng.lng);
+  else { routePts.push([e.latlng.lat, e.latlng.lng]); drawRoute(); }
+});
+
+function setMode(m) {
+  mode = m;
+  $('tabFixed').classList.toggle('on', m === 'fixed');
+  $('tabRoute').classList.toggle('on', m === 'route');
+  $('routeBox').style.display = m === 'route' ? '' : 'none';
+  $('apply').textContent = m === 'fixed' ? 'Set this location on iPhone' : 'Start moving along route';
+}
+$('tabFixed').onclick = () => setMode('fixed');
+$('tabRoute').onclick = () => setMode('route');
+$('clearRoute').onclick = () => { routePts = []; drawRoute(); };
+
+['lat', 'lon'].forEach(id => $(id).addEventListener('change', () => {
+  const la = parseFloat($('lat').value), lo = parseFloat($('lon').value);
+  if (!isNaN(la) && !isNaN(lo)) setPin(la, lo, true);
+}));
+
+async function search() {
+  const q = $('search').value.trim(); if (!q) return;
+  // Pasted coordinates like "48.8584, 2.2945"
+  const m = q.match(/^\s*(-?\d+(\.\d+)?)\s*[, ]\s*(-?\d+(\.\d+)?)\s*$/);
+  if (m) return setPin(+m[1], +m[3], true);
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q));
+    const j = await r.json();
+    if (!j.length) return msg('Place not found.', true);
+    setPin(+j[0].lat, +j[0].lon, true); msg(j[0].display_name);
+  } catch { msg('Search failed (no internet?). Type coordinates instead.', true); }
+}
+$('go').onclick = search;
+$('search').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+
+// Access key: arrives once in the link/QR code, then is remembered on the iPhone.
+let KEY = new URLSearchParams(location.search).get('key');
+try { if (KEY) localStorage.setItem('key', KEY); else KEY = localStorage.getItem('key'); } catch {}
+KEY = KEY || '';
+
+async function api(path, body) {
+  const headers = { 'X-Key': KEY };
+  if (body) headers['Content-Type'] = 'application/json';
+  const r = await fetch(path, body ? { method: 'POST', headers, body: JSON.stringify(body) } : { headers });
+  const j = await r.json();
+  if (r.status === 401) msg(j.error, true);
+  return j;
+}
+
+async function busy(btn, fn) {
+  const all = document.querySelectorAll('button'); all.forEach(b => b.disabled = true);
+  const old = btn.textContent; btn.textContent = 'Working…';
+  try { await fn(); } catch (e) { msg(String(e), true); }
+  finally { all.forEach(b => b.disabled = false); btn.textContent = old; refreshStatus(); }
+}
+
+async function loadDevices() {
+  const r = await api('/api/devices');
+  devices = r.devices || [];
+  $('device').innerHTML = devices.length
+    ? devices.map(d => `<option value="${d.udid}">${d.name} · iOS ${d.version} · ${d.connection}</option>`).join('')
+    : '<option value="">No iPhone found — plug in &amp; unlock</option>';
+  if (r.error) msg(r.error, true); else if (!devices.length) msg('Connect the iPhone by USB, unlock it, tap "Trust".');
+}
+$('refresh').onclick = () => busy($('refresh'), loadDevices);
+
+$('prepare').onclick = () => busy($('prepare'), async () => {
+  const d = selDevice(); if (!d) return msg('No iPhone selected.', true);
+  msg('Preparing… first time can take a minute (downloads Apple developer image).');
+  const r = await api('/api/prepare', { udid: d.udid, version: d.version });
+  msg(r.message || r.error, !r.ok);
+});
+
+$('pairing').onclick = () => busy($('pairing'), async () => {
+  const d = selDevice(); if (!d) return msg('No iPhone selected.', true);
+  msg('Creating pairing file… if the iPhone asks, unlock it and tap "Trust".');
+  const r = await fetch('/api/pairing', { method: 'POST',
+    headers: { 'X-Key': KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ udid: d.udid }) });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); return msg(j.error || 'Failed.', true); }
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = d.udid + '.plist';
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  const warn = r.headers.get('X-Warning');
+  msg('Pairing file downloaded (' + d.udid + '.plist).\n' +
+      (/iPhone|iPad/.test(navigator.userAgent)
+        ? 'It is in the Files app → Downloads. Import it from there in the location app.'
+        : 'Send it to the iPhone with AirDrop (Mac), or put it in iCloud Drive / Files, then import it in the location app.') +
+      (warn ? '\n\n' + warn : ''));
+});
+
+$('apply').onclick = () => busy($('apply'), async () => {
+  const d = selDevice(); if (!d) return msg('No iPhone selected.', true);
+  let r;
+  if (mode === 'fixed') {
+    const lat = parseFloat($('lat').value), lon = parseFloat($('lon').value);
+    if (isNaN(lat) || isNaN(lon)) return msg('Click the map or search a place first.', true);
+    msg('Sending location to iPhone…');
+    r = await api('/api/set', { udid: d.udid, version: d.version, lat, lon });
+  } else {
+    if (routePts.length < 2) return msg('Add at least 2 points on the map.', true);
+    r = await api('/api/route', { udid: d.udid, version: d.version, points: routePts, speed_kmh: +$('speed').value });
+  }
+  msg(r.message || r.error, !r.ok);
+});
+
+$('stop').onclick = () => busy($('stop'), async () => {
+  const r = await api('/api/stop', {}); msg(r.message || r.error, !r.ok);
+});
+
+async function refreshStatus() {
+  try {
+    const s = await api('/api/status');
+    $('status').textContent = { idle: 'real GPS', fixed: 'location set', route: 'moving',
+                                disconnected: 'iPhone disconnected' }[s.mode] || s.mode;
+    $('status').className = 'pill ' + s.mode;
+    const pos = s.route ? s.route.position : s.location;
+    if (pos && s.mode !== 'idle') {
+      if (!liveDot) liveDot = L.circleMarker(pos, { radius: 9, color: '#fff', weight: 3,
+                                fillColor: '#22c55e', fillOpacity: 1 }).addTo(map).bindTooltip('iPhone');
+      liveDot.setLatLng(pos);
+    } else if (liveDot) { liveDot.remove(); liveDot = null; }
+    return s;
+  } catch { /* server stopped */ }
+}
+setInterval(refreshStatus, 2000);
+
+// Favorites (stored in this browser)
+function favs() { try { return JSON.parse(localStorage.getItem('favs') || '[]'); } catch { return []; } }
+function saveFavs(f) { try { localStorage.setItem('favs', JSON.stringify(f)); } catch {} renderFavs(); }
+function renderFavs() {
+  $('favs').innerHTML = '';
+  favs().forEach((f, i) => {
+    const row = document.createElement('div'); row.className = 'fav';
+    const s = document.createElement('span'); s.textContent = '★ ' + f.name; s.title = f.lat + ', ' + f.lon;
+    s.onclick = () => { setMode('fixed'); setPin(f.lat, f.lon, true); };
+    const x = document.createElement('button'); x.textContent = '✕';
+    x.onclick = () => { const a = favs(); a.splice(i, 1); saveFavs(a); };
+    row.append(s, x); $('favs').append(row);
+  });
+}
+$('saveFav').onclick = () => {
+  const lat = parseFloat($('lat').value), lon = parseFloat($('lon').value);
+  if (isNaN(lat)) return msg('Drop a pin first.', true);
+  const name = prompt('Name for this place:', $('search').value || 'My place'); if (!name) return;
+  saveFavs([...favs(), { name, lat, lon }]);
+};
+
+async function showPhoneLink() {
+  try {
+    const info = await api('/api/info');
+    if (!info.phone_url) return;
+    $('phoneBox').style.display = '';
+    $('phoneLink').textContent = info.phone_url;
+    if (window.QRCode) new QRCode($('qr'), { text: info.phone_url, width: 180, height: 180 });
+  } catch {}
+}
+
+(async () => {
+  renderFavs();
+  showPhoneLink();
+  const s = await refreshStatus();
+  if (s && s.last) setPin(s.last.lat, s.last.lon, true);
+  loadDevices();
+})();
+</script>
+</body>
+</html>
