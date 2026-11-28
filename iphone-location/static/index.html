@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Location">
+<meta name="theme-color" content="#0f1115">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%233b82f6'/%3E%3Cpath d='M90 30c-25 0-44 19-44 43 0 33 44 77 44 77s44-44 44-77c0-24-19-43-44-43z' fill='white'/%3E%3Ccircle cx='90' cy='73' r='16' fill='%233b82f6'/%3E%3C/svg%3E">
 <title>iPhone Location Changer</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -36,7 +42,17 @@
   .fav span { flex:1; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .fav button { width:auto; padding:4px 8px; }
   small { color:var(--muted); }
-  @media (max-width:760px) { body { flex-direction:column; } aside { width:100%; height:55vh; } #map { height:45vh; } }
+  #qr { background:#fff; padding:10px; border-radius:8px; width:max-content; margin:8px auto 0; }
+  #phoneLink { word-break:break-all; font-size:12px; }
+  /* iPhone layout: map on top, controls below, big touch targets */
+  @media (max-width:760px) {
+    body { flex-direction:column-reverse; height:100dvh; }
+    #map { flex:0 0 45dvh; }
+    aside { width:100%; min-width:0; flex:1; border-right:0; border-top:1px solid var(--line);
+            padding:12px 12px calc(12px + env(safe-area-inset-bottom)); }
+    select, input, button { font-size:16px; padding:12px; }  /* 16px stops iOS zooming in */
+    #phoneBox { display:none !important; }
+  }
 </style>
 </head>
 <body>
@@ -77,6 +93,15 @@
     <div id="msg"></div>
   </section>
 
+  <section id="phoneBox" style="display:none">
+    <h2>📱 Control from your iPhone</h2>
+    <small>iPhone on the same Wi-Fi: open the Camera and scan this code. Then in Safari tap
+      Share → <b>Add to Home Screen</b> to get an app icon.</small>
+    <div id="qr"></div>
+    <p id="phoneLink"></p>
+    <small>Keep this code private. It works like a password.</small>
+  </section>
+
   <section>
     <h2>Saved places</h2>
     <button id="saveFav">★ Save current pin</button>
@@ -89,6 +114,7 @@
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const map = L.map('map').setView([40.758, -73.9855], 13);
@@ -153,10 +179,18 @@ async function search() {
 $('go').onclick = search;
 $('search').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
 
+// Access key: arrives once in the link/QR code, then is remembered on the iPhone.
+let KEY = new URLSearchParams(location.search).get('key');
+try { if (KEY) localStorage.setItem('key', KEY); else KEY = localStorage.getItem('key'); } catch {}
+KEY = KEY || '';
+
 async function api(path, body) {
-  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                       body: JSON.stringify(body) } : {});
-  return r.json();
+  const headers = { 'X-Key': KEY };
+  if (body) headers['Content-Type'] = 'application/json';
+  const r = await fetch(path, body ? { method: 'POST', headers, body: JSON.stringify(body) } : { headers });
+  const j = await r.json();
+  if (r.status === 401) msg(j.error, true);
+  return j;
 }
 
 async function busy(btn, fn) {
@@ -240,8 +274,19 @@ $('saveFav').onclick = () => {
   saveFavs([...favs(), { name, lat, lon }]);
 };
 
+async function showPhoneLink() {
+  try {
+    const info = await api('/api/info');
+    if (!info.phone_url) return;
+    $('phoneBox').style.display = '';
+    $('phoneLink').textContent = info.phone_url;
+    if (window.QRCode) new QRCode($('qr'), { text: info.phone_url, width: 180, height: 180 });
+  } catch {}
+}
+
 (async () => {
   renderFavs();
+  showPhoneLink();
   const s = await refreshStatus();
   if (s && s.last) setPin(s.last.lat, s.last.lon, true);
   loadDevices();

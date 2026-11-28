@@ -30,6 +30,23 @@ Apple's developer location simulation (the same feature Xcode uses). No jailbrea
 - **Stop · Use real GPS** puts the phone back on its real location.
 - **★ Save current pin** keeps places you use often.
 
+## Control it from your iPhone
+
+You can run the app from the iPhone itself, with no need to touch the computer after setup:
+
+1. Keep the computer on and the app running, with the iPhone **plugged into it** and both on the same Wi-Fi.
+2. On the computer page, find **📱 Control from your iPhone** and scan the QR code with the iPhone camera.
+3. In Safari tap **Share → Add to Home Screen**. You now have a "Location" app icon that opens
+   full screen.
+
+The link contains a secret key, so other people on your Wi-Fi can't use it. Keep it private.
+To get a new key, delete `access_key.txt` and restart the app.
+Start with `python app.py --local-only` if you don't want it reachable over Wi-Fi.
+
+> Why the computer is still needed: Apple doesn't let any iPhone app (App Store or sideloaded)
+> change the system GPS without a jailbreak. The computer does the actual change through
+> Apple's developer tools; the iPhone is just the remote control.
+
 ## Find My
 
 Find My on the iPhone reports whatever location the phone reports, so friends and family

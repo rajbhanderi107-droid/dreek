@@ -10,8 +10,11 @@ It drives Apple's developer location simulation through `pymobiledevice3`.
 Run it with:  python app.py   and open http://127.0.0.1:8765
 """
 
+import hmac
 import json
 import os
+import secrets
+import socket
 import re
 import subprocess
 import sys
@@ -23,12 +26,51 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from math import atan2, cos, radians, sin, sqrt
 from datetime import datetime, timedelta, timezone
 
-HOST = "127.0.0.1"
+# By default the app also listens on your Wi-Fi so you can control it from the iPhone.
+# Start with --local-only to allow this computer only.
+LAN = "--local-only" not in sys.argv
+HOST = "0.0.0.0" if LAN else "127.0.0.1"
 PORT = int(os.environ.get("PORT", "8765"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
 PMD = [sys.executable, "-m", "pymobiledevice3"]
 STATE_FILE = os.path.join(HERE, "last_location.json")
+KEY_FILE = os.path.join(HERE, "access_key.txt")
+
+
+def load_key():
+    """Secret that other devices (your iPhone) must present. Kept across restarts
+    so the Home Screen shortcut on the iPhone keeps working."""
+    try:
+        with open(KEY_FILE) as f:
+            k = f.read().strip()
+            if len(k) >= 16:
+                return k
+    except OSError:
+        pass
+    k = secrets.token_urlsafe(18)
+    with open(KEY_FILE, "w") as f:
+        f.write(k)
+    return k
+
+
+ACCESS_KEY = load_key()
+
+
+def lan_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))  # no packet is sent; just picks the Wi-Fi interface
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+def phone_url():
+    ip = lan_ip() if LAN else None
+    return f"http://{ip}:{PORT}/?key={ACCESS_KEY}" if ip else None
 
 
 # --------------------------------------------------------------------------
@@ -338,8 +380,20 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return {}
 
+    def _is_local(self):
+        return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+    def _authorized(self):
+        """This computer may always use the app; other devices need the access key."""
+        if self._is_local():
+            return True
+        given = self.headers.get("X-Key") or ""
+        return hmac.compare_digest(given.encode(), ACCESS_KEY.encode())
+
     def do_GET(self):
-        if self.path == "/" or self.path.startswith("/index.html"):
+        if self.path.startswith("/api/") and not self._authorized():
+            return self._json({"error": "Wrong or missing access key. Scan the QR code shown on the computer again."}, 401)
+        if self.path == "/" or self.path.startswith("/index.html") or self.path.startswith("/?"):
             with open(os.path.join(STATIC, "index.html"), "rb") as f:
                 body = f.read()
             self.send_response(200)
@@ -350,6 +404,8 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/devices":
             devices, err = list_devices()
             self._json({"devices": devices, "error": err})
+        elif self.path == "/api/info":
+            self._json({"phone_url": phone_url() if self._is_local() else None})
         elif self.path == "/api/status":
             st = SESSION.status()
             st["last"] = load_last()
@@ -358,9 +414,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
     def do_POST(self):
-        # Only accept requests from this app's own page.
+        if not self._authorized():
+            return self._json({"error": "Wrong or missing access key. Scan the QR code shown on the computer again."}, 401)
+        # Stop other websites open in this computer's browser from driving the app.
         origin = self.headers.get("Origin")
-        if origin and origin not in (f"http://{HOST}:{PORT}", f"http://localhost:{PORT}"):
+        if self._is_local() and origin and origin not in (f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"):
             return self._json({"error": "forbidden"}, 403)
         data = self._body()
         udid = str(data.get("udid") or "")
@@ -411,8 +469,12 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    url = f"http://{HOST}:{PORT}"
+    url = f"http://127.0.0.1:{PORT}"
     print(f"iPhone Location Changer running at {url}  (Ctrl+C to quit)")
+    if phone_url():
+        print("\nControl it from your iPhone (same Wi-Fi): scan the QR code in the app, or open")
+        print("   " + phone_url())
+        print("Keep this link private: it works like a password.\n")
     if "--no-browser" not in sys.argv:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     try:
