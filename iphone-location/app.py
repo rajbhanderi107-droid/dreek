@@ -13,6 +13,7 @@ Run it with:  python app.py   and open http://127.0.0.1:8765
 import hmac
 import json
 import os
+import plistlib
 import secrets
 import socket
 import re
@@ -329,6 +330,40 @@ def position_along(points, progress):
     return list(points[-1])
 
 
+def make_pairing_file(udid):
+    """Export this computer's pairing record for the iPhone, in the format the
+    on-device location apps (Locus, WaypointApp, StikDebug-based apps...) import.
+    Returns (bytes, warning) or (None, error)."""
+    fd, tmp = tempfile.mkstemp(suffix=".plist")
+    os.close(fd)
+    try:
+        # 1. Make sure the phone is paired (shows "Trust This Computer" if needed).
+        ok, out = run_pmd(["lockdown", "save-pair-record", "--udid", udid, tmp], timeout=60)
+        if not ok:
+            ok2, out2 = run_pmd(["lockdown", "pair", "--udid", udid], timeout=120)
+            if not ok2:
+                return None, ("Could not pair. Unlock the iPhone and tap 'Trust This Computer', then try again.\n\n"
+                              + clean_error(out2))
+            ok, out = run_pmd(["lockdown", "save-pair-record", "--udid", udid, tmp], timeout=60)
+            if not ok:
+                return None, clean_error(out)
+        with open(tmp, "rb") as f:
+            record = plistlib.load(f)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    # 2. The phone-only apps reach the iPhone over its network interface, which
+    #    needs Wi-Fi connections enabled for this pairing.
+    warning = None
+    ok, out = run_pmd(["lockdown", "wifi-connections", "--udid", udid, "on"], timeout=60)
+    if not ok:
+        warning = "Warning: could not enable Wi-Fi connections: " + clean_error(out)
+    record.setdefault("UDID", udid)  # some apps look for it in the file
+    return plistlib.dumps(record), warning
+
+
 def save_last(lat, lon):
     try:
         with open(STATE_FILE, "w") as f:
@@ -441,6 +476,22 @@ class Handler(BaseHTTPRequestHandler):
                     steps.append("Developer disk image: mounted")
                     return self._json({"ok": True, "message": "\n".join(steps) + "\n\nReady! Pick a place on the map."})
                 return self._json({"ok": False, "message": "\n".join(steps) + "\n" + clean_error(out)})
+
+            if self.path == "/api/pairing":
+                if not udid:
+                    return self._json({"error": "Select an iPhone first."}, 400)
+                data_bytes, warn = make_pairing_file(udid)
+                if data_bytes is None:
+                    return self._json({"ok": False, "error": warn}, 500)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-plist")
+                self.send_header("Content-Disposition", 'attachment; filename="pairing.plist"')
+                self.send_header("Content-Length", str(len(data_bytes)))
+                if warn:
+                    self.send_header("X-Warning", " ".join(warn.split())[:300].encode("ascii", "ignore").decode())
+                self.end_headers()
+                self.wfile.write(data_bytes)
+                return
 
             if self.path == "/api/set":
                 p = valid_point([data.get("lat"), data.get("lon")])

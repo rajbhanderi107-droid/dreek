@@ -93,6 +93,14 @@
     <div id="msg"></div>
   </section>
 
+  <section>
+    <h2>🔑 Phone-only mode</h2>
+    <small>Want to change location with no computer later? Create a pairing file here once, then
+      import it into an on-device location app (e.g. Locus or WaypointApp with LocalDevVPN).</small>
+    <div class="row"><button id="pairing">Create pairing file</button></div>
+    <small>⚠️ This file gives full access to your iPhone. Don't share it or upload it anywhere.</small>
+  </section>
+
   <section id="phoneBox" style="display:none">
     <h2>📱 Control from your iPhone</h2>
     <small>iPhone on the same Wi-Fi: open the Camera and scan this code. Then in Safari tap
@@ -215,6 +223,25 @@ $('prepare').onclick = () => busy($('prepare'), async () => {
   msg('Preparing… first time can take a minute (downloads Apple developer image).');
   const r = await api('/api/prepare', { udid: d.udid, version: d.version });
   msg(r.message || r.error, !r.ok);
+});
+
+$('pairing').onclick = () => busy($('pairing'), async () => {
+  const d = selDevice(); if (!d) return msg('No iPhone selected.', true);
+  msg('Creating pairing file… if the iPhone asks, unlock it and tap "Trust".');
+  const r = await fetch('/api/pairing', { method: 'POST',
+    headers: { 'X-Key': KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ udid: d.udid }) });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); return msg(j.error || 'Failed.', true); }
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = d.udid + '.plist';
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  const warn = r.headers.get('X-Warning');
+  msg('Pairing file downloaded (' + d.udid + '.plist).\n' +
+      (/iPhone|iPad/.test(navigator.userAgent)
+        ? 'It is in the Files app → Downloads. Import it from there in the location app.'
+        : 'Send it to the iPhone with AirDrop (Mac), or put it in iCloud Drive / Files, then import it in the location app.') +
+      (warn ? '\n\n' + warn : ''));
 });
 
 $('apply').onclick = () => busy($('apply'), async () => {

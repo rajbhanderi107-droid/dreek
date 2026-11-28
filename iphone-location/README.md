@@ -47,6 +47,25 @@ Start with `python app.py --local-only` if you don't want it reachable over Wi-F
 > change the system GPS without a jailbreak. The computer does the actual change through
 > Apple's developer tools; the iPhone is just the remote control.
 
+## Phone-only mode (no computer afterwards)
+
+Community apps can change the location from the iPhone itself, with no computer, by using
+a loopback VPN (**LocalDevVPN**) plus a **pairing file**. Examples:
+[Locus](https://github.com/Drj0/Locus) and [WaypointApp](https://github.com/ykondury/WaypointApp).
+They are third-party projects that weren't checked as part of this app, so review them before you trust them.
+
+This app makes the pairing file for you:
+
+1. Connect the iPhone, select it, and click **🔑 Create pairing file** (tap Trust on the phone if asked).
+   This also enables Wi-Fi connections for that pairing, which those apps need.
+2. Get the `.plist` file onto the iPhone: AirDrop it (Mac), save it to iCloud Drive, or click the
+   button from the iPhone remote page so it downloads straight into **Files → Downloads**.
+3. Install LocalDevVPN and the location app (via SideStore), turn on the VPN, and import the
+   pairing file in the location app.
+
+**Keep the pairing file private.** Anyone who has it can fully access your iPhone. If it leaks,
+reset trust on the iPhone: Settings → General → Transfer or Reset iPhone → Reset → Reset Location & Privacy.
+
 ## Find My
 
 Find My on the iPhone reports whatever location the phone reports, so friends and family
